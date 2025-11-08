@@ -5,7 +5,7 @@
 //  Created by Alexander McGreevy on 11/8/25.
 //
 
-import Photos
+internal import Photos
 import SwiftUI
 import Combine
 

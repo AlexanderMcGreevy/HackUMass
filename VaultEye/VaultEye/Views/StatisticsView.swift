@@ -14,6 +14,9 @@ struct StatisticsView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 24) {
+                    // Scan Coverage Section
+                    scanCoverageSection
+
                     // Overview Section
                     overviewSection
 
@@ -34,6 +37,99 @@ struct StatisticsView: View {
             }
             .navigationTitle("Statistics")
             .background(Color(.systemGroupedBackground))
+            .task {
+                await updateLibraryPhotoCount()
+            }
+        }
+    }
+
+    // MARK: - Scan Coverage Section
+
+    private var scanCoverageSection: some View {
+        VStack(spacing: 16) {
+            Text("Library Scan Coverage")
+                .font(.headline)
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(spacing: 12) {
+                // Circular progress indicator
+                ZStack {
+                    Circle()
+                        .stroke(Color(.systemGray5), lineWidth: 12)
+                        .frame(width: 120, height: 120)
+
+                    Circle()
+                        .trim(from: 0, to: statsManager.scanCoverage)
+                        .stroke(
+                            statsManager.scanCoverage >= 1.0 ? Color.green : Color.blue,
+                            style: StrokeStyle(lineWidth: 12, lineCap: .round)
+                        )
+                        .frame(width: 120, height: 120)
+                        .rotationEffect(.degrees(-90))
+                        .animation(.easeInOut, value: statsManager.scanCoverage)
+
+                    VStack(spacing: 4) {
+                        Text("\(Int(statsManager.scanCoverage * 100))%")
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundColor(statsManager.scanCoverage >= 1.0 ? .green : .primary)
+
+                        Text("Scanned")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.vertical, 8)
+
+                // Stats breakdown
+                VStack(spacing: 8) {
+                    HStack {
+                        Image(systemName: "photo.on.rectangle")
+                            .foregroundColor(.blue)
+                        Text("Total photos in library:")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("\(statsManager.totalPhotosInLibrary)")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                    }
+
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text("Photos scanned:")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("\(statsManager.lastPhotosScannedCount)")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                    }
+
+                    if statsManager.unscannedPhotos > 0 {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                            Text("Not yet scanned:")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("\(statsManager.unscannedPhotos)")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.orange)
+                        }
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 12)
+                        .background(Color.orange.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+            }
+            .padding()
+            .background(Color(.systemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
         }
     }
 
@@ -158,6 +254,16 @@ struct StatisticsView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
     }
+
+    // MARK: - Helper Methods
+
+    private func updateLibraryPhotoCount() async {
+        // Get current photo library count
+        let assetIDs = PhotoAccess.fetchAllImageAssets()
+        await MainActor.run {
+            statsManager.updateLibraryPhotoCount(assetIDs.count)
+        }
+    }
 }
 
 // MARK: - Stat Card Component
@@ -249,6 +355,8 @@ private struct InsightRow: View {
     statsManager.photosRedacted = 15
     statsManager.totalScans = 3
     statsManager.lastScanDate = Date().addingTimeInterval(-3600) // 1 hour ago
+    statsManager.totalPhotosInLibrary = 200
+    statsManager.lastPhotosScannedCount = 150
 
     return StatisticsView()
         .environmentObject(statsManager)

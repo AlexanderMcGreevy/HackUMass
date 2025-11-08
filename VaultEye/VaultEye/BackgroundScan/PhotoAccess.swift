@@ -5,7 +5,7 @@
 //  Photo library access and image loading utilities
 //
 
-import Photos
+internal import Photos
 import UIKit
 
 final class PhotoAccess {

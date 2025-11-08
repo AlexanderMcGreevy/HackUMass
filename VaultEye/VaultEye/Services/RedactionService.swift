@@ -5,7 +5,7 @@
 //  Created by Alexander McGreevy on 11/8/25.
 //
 
-import Photos
+internal import Photos
 import UIKit
 import Vision
 import CoreImage
@@ -20,7 +20,7 @@ enum RedactionError: Error {
 }
 
 protocol RedactionServiceProtocol {
-    func redactAndReplace(asset: PHAsset) async throws -> PHAsset
+    func redactAndReplace(asset: PHAsset, onRedacted: ((PHAsset) -> Void)?) async throws -> PHAsset
 }
 
 class RedactionService: RedactionServiceProtocol {
@@ -29,10 +29,13 @@ class RedactionService: RedactionServiceProtocol {
 
     init() {}
 
-    /// Main entry point: detect text, blur it, save new asset, delete original
+    /// Main entry point: detect text, blur it, save new asset, queue for deletion
     @MainActor
-    func redactAndReplace(asset: PHAsset) async throws -> PHAsset {
+    func redactAndReplace(asset: PHAsset, onRedacted: ((PHAsset) -> Void)? = nil) async throws -> PHAsset {
         print("🔒 Starting redaction process for asset: \(asset.localIdentifier)")
+
+        // Save original creation date
+        let originalCreationDate = asset.creationDate
 
         // Step 1: Load the full-resolution image
         print("  Step 1: Loading full-resolution image...")
@@ -59,13 +62,18 @@ class RedactionService: RedactionServiceProtocol {
         }
         print("  ✅ Text regions blurred successfully")
 
-        // Step 4: Save as new asset
+        // Step 4: Save as new asset with original creation date
         print("  Step 4: Saving redacted image to photo library...")
-        let newAsset = try await saveAsNewAsset(image: redactedImage)
+        let newAsset = try await saveAsNewAsset(image: redactedImage, creationDate: originalCreationDate)
         print("  ✅ New asset saved: \(newAsset.localIdentifier)")
 
-        // Step 5: Delete original (best effort)
-        print("  Step 5: Deleting original asset...")
+        // Step 5: Queue redacted photo for deletion via callback
+        print("  Step 5: Queuing redacted photo for deletion...")
+        onRedacted?(newAsset)
+        print("  ✅ Redacted photo queued for batch deletion")
+
+        // Step 6: Delete original (best effort)
+        print("  Step 6: Deleting original asset...")
         do {
             try await deleteAsset(asset)
             print("  ✅ Original asset deleted")
@@ -238,11 +246,17 @@ class RedactionService: RedactionServiceProtocol {
         }
     }
 
-    private func saveAsNewAsset(image: UIImage) async throws -> PHAsset {
+    private func saveAsNewAsset(image: UIImage, creationDate: Date?) async throws -> PHAsset {
         var assetId: String?
 
         try await PHPhotoLibrary.shared().performChanges {
             let request = PHAssetChangeRequest.creationRequestForAsset(from: image)
+
+            // Preserve the original creation date if available
+            if let originalDate = creationDate {
+                request.creationDate = originalDate
+            }
+
             assetId = request.placeholderForCreatedAsset?.localIdentifier
         }
 

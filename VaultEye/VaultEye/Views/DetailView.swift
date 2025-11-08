@@ -6,11 +6,12 @@
 //
 
 import SwiftUI
-import Photos
+internal import Photos
 
 struct DetailView: View {
     let result: DetectionResult
     let photoLibraryManager: PhotoLibraryManager
+    let deleteBatchManager: DeleteBatchManager
     let onDelete: () -> Void
     let redactionService: RedactionServiceProtocol
 
@@ -28,11 +29,13 @@ struct DetailView: View {
     init(
         result: DetectionResult,
         photoLibraryManager: PhotoLibraryManager,
+        deleteBatchManager: DeleteBatchManager,
         onDelete: @escaping () -> Void,
         redactionService: RedactionServiceProtocol = RedactionService()
     ) {
         self.result = result
         self.photoLibraryManager = photoLibraryManager
+        self.deleteBatchManager = deleteBatchManager
         self.onDelete = onDelete
         self.redactionService = redactionService
     }
@@ -284,7 +287,10 @@ struct DetailView: View {
 
         Task {
             do {
-                let newAsset = try await redactionService.redactAndReplace(asset: asset)
+                let newAsset = try await redactionService.redactAndReplace(asset: asset) { redactedAsset in
+                    // Queue the redacted photo for deletion
+                    deleteBatchManager.stage(redactedAsset.localIdentifier)
+                }
 
                 await MainActor.run {
                     isRedacting = false
@@ -373,6 +379,7 @@ struct DetectionOverlay: View {
         DetailView(
             result: DetectionResult.mockFlagged,
             photoLibraryManager: PhotoLibraryManager(),
+            deleteBatchManager: DeleteBatchManager(),
             onDelete: {},
             redactionService: RedactionService()
         )

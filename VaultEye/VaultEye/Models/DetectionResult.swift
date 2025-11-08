@@ -5,7 +5,7 @@
 //  Created by Alexander McGreevy on 11/7/25.
 //
 
-import Photos
+internal import Photos
 import UIKit
 
 struct DetectionResult: Identifiable {

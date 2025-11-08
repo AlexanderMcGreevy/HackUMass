@@ -6,7 +6,7 @@
 //
 
 import SwiftUI
-import Photos
+internal import Photos
 
 struct SelectedImagesView: View {
     @EnvironmentObject var scanManager: BackgroundScanManager

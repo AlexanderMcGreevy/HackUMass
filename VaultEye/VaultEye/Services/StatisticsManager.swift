@@ -20,6 +20,8 @@ final class StatisticsManager: ObservableObject {
     @Published var photosRedacted: Int = 0
     @Published var totalScans: Int = 0
     @Published var lastScanDate: Date?
+    @Published var totalPhotosInLibrary: Int = 0
+    @Published var lastPhotosScannedCount: Int = 0
 
     // MARK: - Computed Stats
 
@@ -37,6 +39,15 @@ final class StatisticsManager: ObservableObject {
         return Double(photosKept) / Double(totalProcessed)
     }
 
+    var scanCoverage: Double {
+        guard totalPhotosInLibrary > 0 else { return 0 }
+        return Double(lastPhotosScannedCount) / Double(totalPhotosInLibrary)
+    }
+
+    var unscannedPhotos: Int {
+        max(0, totalPhotosInLibrary - lastPhotosScannedCount)
+    }
+
     // MARK: - Persistence
 
     private let defaults = UserDefaults.standard
@@ -48,6 +59,8 @@ final class StatisticsManager: ObservableObject {
         static let photosRedacted = "stats_photos_redacted"
         static let totalScans = "stats_total_scans"
         static let lastScanDate = "stats_last_scan_date"
+        static let totalPhotosInLibrary = "stats_total_photos_in_library"
+        static let lastPhotosScannedCount = "stats_last_photos_scanned_count"
     }
 
     // MARK: - Initialization
@@ -66,6 +79,12 @@ final class StatisticsManager: ObservableObject {
 
     func recordPhotosScanned(_ count: Int) {
         photosScanned += count
+        lastPhotosScannedCount = count
+        saveStats()
+    }
+
+    func updateLibraryPhotoCount(_ count: Int) {
+        totalPhotosInLibrary = count
         saveStats()
     }
 
@@ -103,6 +122,8 @@ final class StatisticsManager: ObservableObject {
         photosRedacted = 0
         totalScans = 0
         lastScanDate = nil
+        totalPhotosInLibrary = 0
+        lastPhotosScannedCount = 0
         saveStats()
     }
 
@@ -114,6 +135,8 @@ final class StatisticsManager: ObservableObject {
         photosKept = defaults.integer(forKey: Keys.photosKept)
         photosRedacted = defaults.integer(forKey: Keys.photosRedacted)
         totalScans = defaults.integer(forKey: Keys.totalScans)
+        totalPhotosInLibrary = defaults.integer(forKey: Keys.totalPhotosInLibrary)
+        lastPhotosScannedCount = defaults.integer(forKey: Keys.lastPhotosScannedCount)
 
         if let timestamp = defaults.object(forKey: Keys.lastScanDate) as? TimeInterval {
             lastScanDate = Date(timeIntervalSince1970: timestamp)
@@ -126,6 +149,8 @@ final class StatisticsManager: ObservableObject {
         defaults.set(photosKept, forKey: Keys.photosKept)
         defaults.set(photosRedacted, forKey: Keys.photosRedacted)
         defaults.set(totalScans, forKey: Keys.totalScans)
+        defaults.set(totalPhotosInLibrary, forKey: Keys.totalPhotosInLibrary)
+        defaults.set(lastPhotosScannedCount, forKey: Keys.lastPhotosScannedCount)
 
         if let lastScanDate = lastScanDate {
             defaults.set(lastScanDate.timeIntervalSince1970, forKey: Keys.lastScanDate)

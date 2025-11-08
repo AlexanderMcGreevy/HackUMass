@@ -6,7 +6,7 @@
 //
 
 import SwiftUI
-import Photos
+internal import Photos
 
 struct ContentView: View {
     @EnvironmentObject var scanManager: BackgroundScanManager
@@ -199,7 +199,8 @@ struct ContentView: View {
                     content: {
                         DetectionResultCard(
                             result: currentResult,
-                            photoLibraryManager: photoLibraryManager
+                            photoLibraryManager: photoLibraryManager,
+                            deleteBatchManager: deleteBatchManager
                         )
                     },
                     onDelete: {
@@ -360,7 +361,8 @@ struct ContentView: View {
         content: {
             DetectionResultCard(
                 result: DetectionResult.mockFlagged,
-                photoLibraryManager: PhotoLibraryManager()
+                photoLibraryManager: PhotoLibraryManager(),
+                deleteBatchManager: DeleteBatchManager()
             )
         },
         onDelete: { print("Delete") },
