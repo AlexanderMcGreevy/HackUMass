@@ -12,21 +12,112 @@ struct DetailView: View {
     let result: DetectionResult
     let photoLibraryManager: PhotoLibraryManager
     let onDelete: () -> Void
+    let redactionService: RedactionServiceProtocol
 
     @State private var fullSizeImage: UIImage?
     @State private var showDeleteConfirmation = false
     @State private var isDeleting = false
+    @State private var dragOffset: CGFloat = 0
+    @State private var isRedacting = false
+    @State private var redactionError: String?
+    @State private var showError = false
     @Environment(\.dismiss) private var dismiss
 
+    private let swipeThreshold: CGFloat = 120
+
+    init(
+        result: DetectionResult,
+        photoLibraryManager: PhotoLibraryManager,
+        onDelete: @escaping () -> Void,
+        redactionService: RedactionServiceProtocol = RedactionService()
+    ) {
+        self.result = result
+        self.photoLibraryManager = photoLibraryManager
+        self.onDelete = onDelete
+        self.redactionService = redactionService
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                imageSection
-                detectionInfoSection
-                placeholderSections
-                deleteButton
+        ZStack {
+            VStack(spacing: 0) {
+                // Image at the top (outside scroll)
+                if let image = fullSizeImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxHeight: 400)
+                        .clipped()
+                } else {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(height: 300)
+                        .overlay {
+                            ProgressView()
+                        }
+                }
+
+                // Scrollable details below
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        detectionInfoSection
+                        placeholderSections
+                        deleteButton
+                    }
+                    .padding()
+                }
             }
-            .padding()
+            .offset(y: max(0, dragOffset)) // Only allow downward drag
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        if value.translation.height > 0 {
+                            dragOffset = value.translation.height
+                        }
+                    }
+                    .onEnded { _ in
+                        if dragOffset > swipeThreshold {
+                            // Trigger redaction
+                            performRedaction()
+                        } else {
+                            // Snap back
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                dragOffset = 0
+                            }
+                        }
+                    }
+            )
+
+            // Blue indicator at bottom
+            if dragOffset > 0 {
+                VStack {
+                    Spacer()
+                    Rectangle()
+                        .fill(Color.blue)
+                        .frame(height: 4)
+                        .opacity(min(1.0, dragOffset / swipeThreshold))
+                }
+                .ignoresSafeArea()
+            }
+
+            // Progress overlay
+            if isRedacting {
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+
+                    Text("Redacting text…")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                }
+                .padding(32)
+                .background(Color(.systemGray6))
+                .cornerRadius(16)
+            }
         }
         .navigationTitle("Detection Details")
         .navigationBarTitleDisplayMode(.inline)
@@ -41,30 +132,10 @@ struct DetailView: View {
         } message: {
             Text("This photo will be permanently deleted from your library.")
         }
-    }
-
-    private var imageSection: some View {
-        VStack(spacing: 12) {
-            if let image = fullSizeImage {
-                GeometryReader { geometry in
-                    ZStack {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: geometry.size.width, height: geometry.size.height)
-
-                        // Overlay detected regions
-                        ForEach(result.detectedRegions) { region in
-                            DetectionOverlay(region: region, imageSize: image.size, frameSize: geometry.size)
-                        }
-                    }
-                }
-                .aspectRatio(fullSizeImage?.size.width ?? 1 / (fullSizeImage?.size.height ?? 1), contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-            } else {
-                ProgressView()
-                    .frame(height: 300)
-            }
+        .alert("Redaction Error", isPresented: $showError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(redactionError ?? "An error occurred during redaction")
         }
     }
 
@@ -197,6 +268,60 @@ struct DetailView: View {
             }
         }
     }
+
+    private func performRedaction() {
+        guard let asset = result.asset else {
+            redactionError = "Cannot redact preview images"
+            showError = true
+            withAnimation {
+                dragOffset = 0
+            }
+            return
+        }
+
+        isRedacting = true
+        dragOffset = 0
+
+        Task {
+            do {
+                let newAsset = try await redactionService.redactAndReplace(asset: asset)
+
+                await MainActor.run {
+                    isRedacting = false
+
+                    // Update the view with the new redacted asset
+                    Task {
+                        let targetSize = CGSize(width: 1024, height: 1024)
+                        fullSizeImage = await photoLibraryManager.loadThumbnail(
+                            for: newAsset,
+                            targetSize: targetSize
+                        )
+                    }
+
+                    // Haptic success feedback
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
+            } catch RedactionError.noTextFound {
+                await MainActor.run {
+                    isRedacting = false
+                    redactionError = "No text found in this image"
+                    showError = true
+                }
+            } catch RedactionError.deleteFailed {
+                await MainActor.run {
+                    isRedacting = false
+                    redactionError = "Redacted copy saved, but original could not be deleted. Both copies remain in your library."
+                    showError = true
+                }
+            } catch {
+                await MainActor.run {
+                    isRedacting = false
+                    redactionError = "Failed to redact: \(error.localizedDescription)"
+                    showError = true
+                }
+            }
+        }
+    }
 }
 
 struct DetectionOverlay: View {
@@ -248,7 +373,8 @@ struct DetectionOverlay: View {
         DetailView(
             result: DetectionResult.mockFlagged,
             photoLibraryManager: PhotoLibraryManager(),
-            onDelete: {}
+            onDelete: {},
+            redactionService: RedactionService()
         )
     }
 }
