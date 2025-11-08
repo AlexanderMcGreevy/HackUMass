@@ -11,7 +11,6 @@ import Photos
 struct ContentView: View {
     @StateObject private var photoLibraryManager = PhotoLibraryManager()
     @StateObject private var deleteBatchManager = DeleteBatchManager()
-    @EnvironmentObject var activityTracker: ActivityTracker
     @State private var detectionResults: [DetectionResult] = []
     @State private var isScanning = false
     @State private var showPermissionAlert = false
@@ -197,11 +196,6 @@ struct ContentView: View {
             let scanner = ScannerService(photoLibraryManager: photoLibraryManager)
             detectionResults = await scanner.scanPhotos()
             isScanning = false
-
-            // Track scanned photos
-            for _ in detectionResults {
-                activityTracker.trackScan()
-            }
         }
     }
 
@@ -215,17 +209,11 @@ struct ContentView: View {
         // Stage for batch deletion
         deleteBatchManager.stage(result.assetIdentifier)
 
-        // Track deletion (hardcoded to Credit Card for now)
-        activityTracker.trackDelete(type: "Credit Card")
-
         // Remove from current list
         removeResult(result)
     }
 
     private func handleKeep(_ result: DetectionResult) {
-        // Track kept action
-        activityTracker.trackKeep()
-
         // Just remove from list (mark as reviewed/kept)
         removeResult(result)
     }
@@ -250,7 +238,6 @@ struct ContentView: View {
 
 #Preview("Content View - Empty") {
     ContentView()
-        .environmentObject(ActivityTracker())
 }
 
 #Preview("Swipe Card") {
