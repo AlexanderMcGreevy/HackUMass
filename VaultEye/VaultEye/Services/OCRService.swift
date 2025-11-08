@@ -18,52 +18,59 @@ final class VisionOCRService: OCRServiceProtocol {
             throw OCRServiceError.imageConversionFailed
         }
 
-        return try await Task.detached(priority: .userInitiated) {
-            var collected: [OCRTextSegment] = []
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                var collected: [OCRTextSegment] = []
 
-            for region in regions {
-                let request = VNRecognizeTextRequest()
-                request.recognitionLevel = .accurate
-                request.usesLanguageCorrection = false
-                request.minimumTextHeight = 0.02
-                request.customWords = []
-                request.regionOfInterest = self.visionRect(for: region.normalizedRect)
+                for region in regions {
+                    let request = VNRecognizeTextRequest()
+                    request.recognitionLevel = .accurate
+                    request.usesLanguageCorrection = false
+                    request.minimumTextHeight = 0.02
+                    request.customWords = []
+                    request.regionOfInterest = Self.visionRect(for: region.normalizedRect)
 
-                let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+                    let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
 
-                try handler.perform([request])
+                    do {
+                        try handler.perform([request])
+                    } catch {
+                        continuation.resume(throwing: error)
+                        return
+                    }
 
-                guard let observations = request.results as? [VNRecognizedTextObservation] else {
-                    continue
+                    guard let observations = request.results else {
+                        continue
+                    }
+
+                    let rawText = observations
+                        .compactMap { $0.topCandidates(1).first?.string }
+                        .joined(separator: "\n")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                    guard !rawText.isEmpty else {
+                        continue
+                    }
+
+                    let sanitized = TextSanitizer.sanitize(rawText)
+                    let segment = OCRTextSegment(
+                        regionID: region.id,
+                        rawText: rawText,
+                        sanitizedText: sanitized
+                    )
+                    collected.append(segment)
                 }
 
-                let rawText = observations
-                    .compactMap { $0.topCandidates(1).first?.string }
-                    .joined(separator: "\n")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-
-                guard !rawText.isEmpty else {
-                    continue
+                if collected.isEmpty {
+                    continuation.resume(throwing: OCRServiceError.noTextDetected)
+                } else {
+                    continuation.resume(returning: collected)
                 }
-
-                let sanitized = TextSanitizer.sanitize(rawText)
-                let segment = OCRTextSegment(
-                    regionID: region.id,
-                    rawText: rawText,
-                    sanitizedText: sanitized
-                )
-                collected.append(segment)
             }
-
-            if collected.isEmpty {
-                throw OCRServiceError.noTextDetected
-            }
-
-            return collected
-        }.value
+        }
     }
 
-    private func visionRect(for normalizedRect: CGRect) -> CGRect {
+    private static func visionRect(for normalizedRect: CGRect) -> CGRect {
         let clampedX = max(0, min(1, normalizedRect.origin.x))
         let clampedY = max(0, min(1, normalizedRect.origin.y))
         let clampedWidth = max(0, min(1 - clampedX, normalizedRect.width))
