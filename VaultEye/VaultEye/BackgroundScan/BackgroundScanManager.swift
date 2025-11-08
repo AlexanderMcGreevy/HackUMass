@@ -26,9 +26,16 @@ final class BackgroundScanManager: ObservableObject {
     private var isCancelled = false
     private var classifier: ImageClassifier?
     private var currentTask: Task<Void, Never>?
+    private weak var statsManager: StatisticsManager?
 
     private let batchSize = 20 // Checkpoint every N images
     private let maxImageSize = CGSize(width: 1024, height: 1024)
+
+    // MARK: - Configuration
+
+    func configure(statsManager: StatisticsManager) {
+        self.statsManager = statsManager
+    }
 
     // MARK: - Initialization
 
@@ -91,6 +98,9 @@ final class BackgroundScanManager: ObservableObject {
         self.total = assetIDs.count
         self.processed = 0
         self.isRunning = true
+
+        // Record scan started
+        statsManager?.recordScanStarted()
 
         print("🚀 Starting scan: \(total) images, threshold: \(threshold)")
 
@@ -235,6 +245,9 @@ final class BackgroundScanManager: ObservableObject {
 
         self.isRunning = false
         self.lastCompletionSummary = "\(currentState.selectedIDs.count) images matched ≥ \(currentState.threshold)"
+
+        // Record stats
+        statsManager?.recordPhotosScanned(currentState.assetIDs.count)
 
         print("🎉 Scan complete: \(currentState.selectedIDs.count) matches")
 

@@ -11,6 +11,7 @@ import UserNotifications
 @main
 struct VaultEyeApp: App {
     @StateObject private var scanManager = BackgroundScanManager()
+    @StateObject private var statsManager = StatisticsManager()
 
     init() {
         // Register background tasks
@@ -24,8 +25,10 @@ struct VaultEyeApp: App {
         WindowGroup {
             TabView {
                 ContentView()
+                    .environmentObject(scanManager)
+                    .environmentObject(statsManager)
                     .tabItem {
-                        Label("Photos", systemImage: "photo.stack")
+                        Label("Review", systemImage: "rectangle.stack.badge.play")
                     }
 
                 ScanScreen()
@@ -34,11 +37,15 @@ struct VaultEyeApp: App {
                         Label("Background Scan", systemImage: "magnifyingglass")
                     }
 
-                SelectedImagesView()
-                    .environmentObject(scanManager)
+                StatisticsView()
+                    .environmentObject(statsManager)
                     .tabItem {
-                        Label("Matched", systemImage: "checkmark.circle")
+                        Label("Statistics", systemImage: "chart.bar.fill")
                     }
+            }
+            .onAppear {
+                // Configure scan manager with stats
+                scanManager.configure(statsManager: statsManager)
             }
         }
     }

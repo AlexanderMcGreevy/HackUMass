@@ -9,10 +9,11 @@ import SwiftUI
 import Photos
 
 struct ContentView: View {
+    @EnvironmentObject var scanManager: BackgroundScanManager
+    @EnvironmentObject var statsManager: StatisticsManager
     @StateObject private var photoLibraryManager = PhotoLibraryManager()
     @StateObject private var deleteBatchManager = DeleteBatchManager()
     @State private var detectionResults: [DetectionResult] = []
-    @State private var isScanning = false
     @State private var showPermissionAlert = false
 
     var body: some View {
@@ -33,10 +34,21 @@ struct ContentView: View {
                     resultsList
                 }
             }
-            .navigationTitle("VaultEye")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    scanButton
+            .navigationTitle("Review Photos")
+            .task {
+                // Load photos from background scan results on appear
+                await loadPhotosFromBackgroundScan()
+            }
+            .onAppear {
+                // Configure delete batch manager with stats
+                deleteBatchManager.configure(statsManager: statsManager)
+            }
+            .onChange(of: scanManager.isRunning) { oldValue, newValue in
+                // Reload when scan completes
+                if oldValue && !newValue {
+                    Task {
+                        await loadPhotosFromBackgroundScan()
+                    }
                 }
             }
         }
@@ -86,34 +98,97 @@ struct ContentView: View {
     }
 
     private var emptyStateView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "shield.checkered")
+        VStack(spacing: 20) {
+            Image(systemName: "photo.stack")
                 .font(.system(size: 60))
-                .foregroundColor(.green)
+                .foregroundColor(.blue)
 
-            Text("Ready to Scan")
+            Text("No Photos to Review")
                 .font(.title2)
                 .fontWeight(.semibold)
 
-            Text("Tap the scan button to check your photos for sensitive information.")
+            Text("Matched photos from your background scan will appear here for review.")
                 .multilineTextAlignment(.center)
                 .foregroundColor(.secondary)
                 .padding(.horizontal)
+
+            VStack(spacing: 12) {
+                HStack(spacing: 8) {
+                    Image(systemName: "1.circle.fill")
+                        .foregroundColor(.blue)
+                    Text("Go to the Background Scan tab")
+                        .font(.subheadline)
+                    Spacer()
+                }
+
+                HStack(spacing: 8) {
+                    Image(systemName: "2.circle.fill")
+                        .foregroundColor(.blue)
+                    Text("Start a scan to find flagged photos")
+                        .font(.subheadline)
+                    Spacer()
+                }
+
+                HStack(spacing: 8) {
+                    Image(systemName: "3.circle.fill")
+                        .foregroundColor(.blue)
+                    Text("Return here to review and sort them")
+                        .font(.subheadline)
+                    Spacer()
+                }
+            }
+            .padding()
+            .background(Color(.systemGray6))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal)
         }
         .padding()
     }
 
     private var resultsList: some View {
         VStack(spacing: 16) {
-            // Progress indicator
-            HStack {
-                Text("\(detectionResults.count) photo(s) remaining")
-                    .font(.headline)
-                    .foregroundColor(.secondary)
-                Spacer()
-                Text("← Keep | Delete →")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+            // Progress indicator with action instructions
+            VStack(spacing: 8) {
+                HStack {
+                    Text("\(detectionResults.count) matched photo(s) to review")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+
+                HStack(spacing: 16) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.left")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                        Text("Keep")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Text("|")
+                        .foregroundColor(.secondary)
+
+                    HStack(spacing: 4) {
+                        Text("Delete")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Image(systemName: "arrow.right")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+
+                    Spacer()
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.down")
+                            .font(.caption)
+                            .foregroundColor(.blue)
+                        Text("Redact")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
             }
             .padding(.horizontal)
             .padding(.top, 8)
@@ -152,53 +227,85 @@ struct ContentView: View {
                 .font(.title2)
                 .fontWeight(.semibold)
 
-            if deleteBatchManager.stagedAssetIds.count > 0 {
-                Text("\(deleteBatchManager.stagedAssetIds.count) photo(s) queued for deletion")
-                    .foregroundColor(.secondary)
+            Text("You've reviewed all matched photos")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
 
-                Button(action: commitDeletions) {
+            if deleteBatchManager.stagedAssetIds.count > 0 {
+                VStack(spacing: 16) {
                     HStack {
-                        Image(systemName: "trash.fill")
-                        Text("Commit Deletions")
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text("\(deleteBatchManager.stagedAssetIds.count) photo(s) queued for deletion")
+                            .foregroundColor(.secondary)
                     }
-                    .fontWeight(.semibold)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 32)
-                    .padding(.vertical, 16)
-                    .background(Color.red)
-                    .cornerRadius(12)
+                    .padding()
+                    .background(Color.orange.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                    Button(action: commitDeletions) {
+                        HStack {
+                            Image(systemName: "trash.fill")
+                            Text("Permanently Delete Selected Photos")
+                        }
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 32)
+                        .padding(.vertical, 16)
+                        .background(Color.red)
+                        .cornerRadius(12)
+                    }
+
+                    Text("This action cannot be undone")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             } else {
-                Text("No deletions queued")
+                Text("No photos selected for deletion")
                     .foregroundColor(.secondary)
+                    .padding()
+                    .background(Color(.systemGray6))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
             }
         }
         .padding()
     }
 
-    private var scanButton: some View {
-        Button(action: startScan) {
-            if isScanning {
-                ProgressView()
-                    .progressViewStyle(.circular)
-            } else {
-                Label("Scan", systemImage: "magnifyingglass")
+
+    /// Load photos from background scan results
+    private func loadPhotosFromBackgroundScan() async {
+        guard photoLibraryManager.isAuthorized else { return }
+
+        // Get selected asset IDs from background scan
+        let assetIDs = scanManager.getSelectedAssetIDs()
+
+        guard !assetIDs.isEmpty else { return }
+
+        // Convert to DetectionResults
+        var results: [DetectionResult] = []
+
+        for assetID in assetIDs {
+            guard let asset = PhotoAccess.fetchAsset(byLocalIdentifier: assetID) else {
+                continue
             }
-        }
-        .disabled(isScanning || !photoLibraryManager.isAuthorized)
-    }
 
-    private func startScan() {
-        guard photoLibraryManager.isAuthorized else {
-            showPermissionAlert = true
-            return
+            // Create detection result with mock data
+            let result = DetectionResult(
+                asset: asset,
+                isFlagged: true,
+                detectedRegions: [],
+                reason: "Flagged by background scan"
+            )
+
+            results.append(result)
         }
 
-        isScanning = true
-        Task {
-            let scanner = ScannerService(photoLibraryManager: photoLibraryManager)
-            detectionResults = await scanner.scanPhotos()
-            isScanning = false
+        // Update UI on main actor
+        await MainActor.run {
+            // Only load if we don't already have results
+            if detectionResults.isEmpty {
+                detectionResults = results
+            }
         }
     }
 
@@ -217,6 +324,9 @@ struct ContentView: View {
     }
 
     private func handleKeep(_ result: DetectionResult) {
+        // Record stat
+        statsManager.recordPhotoKept()
+
         // Just remove from list (mark as reviewed/kept)
         removeResult(result)
     }
@@ -241,6 +351,8 @@ struct ContentView: View {
 
 #Preview("Content View - Empty") {
     ContentView()
+        .environmentObject(BackgroundScanManager())
+        .environmentObject(StatisticsManager())
 }
 
 #Preview("Swipe Card") {
