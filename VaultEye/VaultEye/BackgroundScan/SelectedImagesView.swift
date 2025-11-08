@@ -6,7 +6,7 @@
 //
 
 import SwiftUI
-import Photos
+internal import Photos
 
 struct SelectedImagesView: View {
     @EnvironmentObject var scanManager: BackgroundScanManager
@@ -37,7 +37,6 @@ struct SelectedImagesView: View {
                 }
             }
             .navigationTitle("Matched Images")
-            .navigationBarTitleDisplayMode(.inline)
             .task {
                 await loadSelectedAssets()
             }

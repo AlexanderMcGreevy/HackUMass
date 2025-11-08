@@ -5,13 +5,19 @@
 //  Created by Alexander McGreevy on 11/8/25.
 //
 
-import Photos
+internal import Photos
 import SwiftUI
 import Combine
 
 @MainActor
 final class DeleteBatchManager: ObservableObject {
     @Published var stagedAssetIds: Set<String> = []
+
+    private weak var statsManager: StatisticsManager?
+
+    func configure(statsManager: StatisticsManager) {
+        self.statsManager = statsManager
+    }
 
     func stage(_ assetId: String) {
         stagedAssetIds.insert(assetId)
@@ -31,9 +37,14 @@ final class DeleteBatchManager: ObservableObject {
 
         guard !assets.isEmpty else { return }
 
+        let deleteCount = assets.count
+
         try await PHPhotoLibrary.shared().performChanges {
             PHAssetChangeRequest.deleteAssets(NSArray(array: assets))
         }
+
+        // Record stats
+        statsManager?.recordPhotosDeleted(deleteCount)
 
         // Success - clear staged items
         stagedAssetIds.removeAll()

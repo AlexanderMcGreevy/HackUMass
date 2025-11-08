@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+internal import Photos
 
 // Constants
 private let swipeThreshold: CGFloat = 140
@@ -160,6 +161,7 @@ struct SwipeCardView<Content: View>: View {
 struct DetectionResultCard: View {
     let result: DetectionResult
     let photoLibraryManager: PhotoLibraryManager
+    let deleteBatchManager: DeleteBatchManager
     let redactionService: RedactionServiceProtocol
 
     @State private var fullSizeImage: UIImage?
@@ -173,10 +175,12 @@ struct DetectionResultCard: View {
     init(
         result: DetectionResult,
         photoLibraryManager: PhotoLibraryManager,
+        deleteBatchManager: DeleteBatchManager,
         redactionService: RedactionServiceProtocol = RedactionService()
     ) {
         self.result = result
         self.photoLibraryManager = photoLibraryManager
+        self.deleteBatchManager = deleteBatchManager
         self.redactionService = redactionService
     }
 
@@ -306,6 +310,23 @@ struct DetectionResultCard: View {
                             .background(Color.blue.opacity(0.1))
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
+
+                        // Deletion queue status
+                        if deleteBatchManager.stagedAssetIds.count > 0 {
+                            HStack {
+                                Image(systemName: "trash.fill")
+                                    .foregroundColor(.red)
+
+                                Text("\(deleteBatchManager.stagedAssetIds.count) photo(s) queued for deletion")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+
+                                Spacer()
+                            }
+                            .padding()
+                            .background(Color.red.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
                     }
                     .padding()
                 }
@@ -398,7 +419,10 @@ struct DetectionResultCard: View {
 
         Task {
             do {
-                let newAsset = try await redactionService.redactAndReplace(asset: asset)
+                let newAsset = try await redactionService.redactAndReplace(asset: asset) { redactedAsset in
+                    // Queue the redacted photo for deletion
+                    deleteBatchManager.stage(redactedAsset.localIdentifier)
+                }
 
                 await MainActor.run {
                     isRedacting = false
@@ -466,7 +490,8 @@ private struct BoundingBoxOverlay: View {
         content: {
             DetectionResultCard(
                 result: .mockFlagged,
-                photoLibraryManager: PhotoLibraryManager()
+                photoLibraryManager: PhotoLibraryManager(),
+                deleteBatchManager: DeleteBatchManager()
             )
         },
         onDelete: { print("Deleted") },
@@ -480,7 +505,8 @@ private struct BoundingBoxOverlay: View {
 #Preview("Detection Result Card Only") {
     DetectionResultCard(
         result: DetectionResult.mockFlagged,
-        photoLibraryManager: PhotoLibraryManager()
+        photoLibraryManager: PhotoLibraryManager(),
+        deleteBatchManager: DeleteBatchManager()
     )
     .padding()
 }

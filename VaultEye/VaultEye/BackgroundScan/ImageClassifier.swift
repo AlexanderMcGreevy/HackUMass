@@ -11,7 +11,8 @@ import CoreML
 import UIKit
 
 struct ImageClassifier {
-    private let model: VNCoreMLModel
+    private let model: VNCoreMLModel?
+    private let useMockMode: Bool
 
     // MARK: - Initialization
 
@@ -21,21 +22,35 @@ struct ImageClassifier {
         // TODO: Replace with your actual Core ML model
         // Example: let mlModel = try YourModel(configuration: MLModelConfiguration()).model
 
-        // For now, use a placeholder that returns random confidence
-        // This allows the code to compile without a real model
-        let mlModel = try Self.createPlaceholderModel()
-        self.model = try VNCoreMLModel(for: mlModel)
+        // For now, throw error to use mock mode
+        throw NSError(domain: "ImageClassifier", code: 1,
+                     userInfo: [NSLocalizedDescriptionKey: "No Core ML model available"])
     }
 
     init(mlModel: MLModel) throws {
         self.model = try VNCoreMLModel(for: mlModel)
+        self.useMockMode = false
+    }
+
+    /// Initialize in mock mode (no ML model required)
+    private init(mockMode: Bool) {
+        self.model = nil
+        self.useMockMode = mockMode
     }
 
     // MARK: - Classification
 
     /// Returns confidence score 0-100 for the given image
     func confidence(for cgImage: CGImage) async throws -> Int {
-        let model = self.model // Capture model to avoid self reference
+        // If in mock mode, use mock confidence
+        if useMockMode {
+            return await mockConfidence(for: cgImage)
+        }
+
+        guard let model = self.model else {
+            throw NSError(domain: "ImageClassifier", code: 2,
+                         userInfo: [NSLocalizedDescriptionKey: "No model available"])
+        }
 
         return try await withCheckedThrowingContinuation { continuation in
             let request = VNCoreMLRequest(model: model) { request, error in
@@ -66,26 +81,6 @@ struct ImageClassifier {
             }
         }
     }
-
-    // MARK: - Placeholder Model
-
-    private static func createPlaceholderModel() throws -> MLModel {
-        // This creates a simple placeholder model for testing
-        // Replace with your actual model loading
-
-        // For testing purposes, we'll create a model that returns random confidence
-        // In production, load your actual .mlmodel file:
-        // let model = try YourModelName(configuration: MLModelConfiguration()).model
-
-        // Since we can't create a dummy MLModel easily, we'll use a workaround
-        // that leverages Vision's built-in classification
-
-        // Use a simple built-in model if available, otherwise this will be replaced
-        // by your actual model. For now, we'll throw an error that gets caught
-        // and handled with a random confidence generator.
-        throw NSError(domain: "ImageClassifier", code: 1,
-                     userInfo: [NSLocalizedDescriptionKey: "Replace with actual Core ML model"])
-    }
 }
 
 // MARK: - Mock Classifier for Testing
@@ -93,16 +88,17 @@ struct ImageClassifier {
 extension ImageClassifier {
     /// Creates a mock classifier that returns random confidence for testing
     static func mock() -> ImageClassifier {
-        return try! ImageClassifier()
+        return ImageClassifier(mockMode: true)
     }
 
     /// Mock confidence method that returns random values for testing
+    /// Returns all photos (100 confidence) so they're all loaded for review
     func mockConfidence(for cgImage: CGImage) async -> Int {
-        // Simulate processing time
-        try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
+        // Simulate brief processing time
+        try? await Task.sleep(nanoseconds: 50_000_000) // 0.05 second
 
-        // Return random confidence between 0-100
-        // In real usage, this will be replaced by actual ML inference
-        return Int.random(in: 0...100)
+        // Return 100 (all photos match) so user can review all of them
+        // When a real ML model is added, this will be replaced by actual inference
+        return 100
     }
 }
