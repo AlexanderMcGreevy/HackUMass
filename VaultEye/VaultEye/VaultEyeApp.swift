@@ -19,6 +19,7 @@ struct VaultEyeApp: App {
         // Set notification delegate
         UNUserNotificationCenter.current().delegate = NotificationHelper.shared
     }
+    @StateObject private var activityTracker = ActivityTracker()
 
     var body: some Scene {
         WindowGroup {
@@ -39,6 +40,17 @@ struct VaultEyeApp: App {
                     .tabItem {
                         Label("Matched", systemImage: "checkmark.circle")
                     }
+                    .environmentObject(activityTracker)
+                    .tabItem {
+                        Label("Scan", systemImage: "magnifyingglass")
+                    }
+
+                NavigationStack {
+                    DashboardView(activityTracker: activityTracker)
+                }
+                .tabItem {
+                    Label("Dashboard", systemImage: "chart.bar.fill")
+                }
             }
         }
     }
