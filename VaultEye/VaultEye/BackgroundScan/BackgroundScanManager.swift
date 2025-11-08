@@ -262,10 +262,8 @@ final class BackgroundScanManager: ObservableObject {
                 return false
             }
 
-            // Classify
-            // Note: Using mockConfidence for testing since we don't have a real model
-            // Replace with: let confidence = try await classifier.confidence(for: cgImage)
-            let confidence = await classifier.mockConfidence(for: cgImage)
+            // Classify (mock mode will return 100 for all photos)
+            let confidence = try await classifier.confidence(for: cgImage)
 
             let matched = confidence >= threshold
 

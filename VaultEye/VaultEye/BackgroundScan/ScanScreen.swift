@@ -41,7 +41,6 @@ struct ScanScreen: View {
             }
             .padding()
             .navigationTitle("Background Scan")
-            .navigationBarTitleDisplayMode(.inline)
             .onChange(of: scenePhase) { oldPhase, newPhase in
                 handleScenePhaseChange(from: oldPhase, to: newPhase)
             }

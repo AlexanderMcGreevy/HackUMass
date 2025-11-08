@@ -40,8 +40,13 @@ final class BGTasks {
         do {
             try BGTaskScheduler.shared.submit(request)
             print("✅ Scheduled background processing task")
-        } catch {
-            print("❌ Failed to schedule background task: \(error)")
+        } catch let error as NSError {
+            // Code 3 means identifier not registered in Info.plist - this is expected in simulator
+            if error.code == 3 {
+                print("⚠️ Background task identifier not registered (expected in simulator)")
+            } else {
+                print("❌ Failed to schedule background task: \(error)")
+            }
         }
     }
 

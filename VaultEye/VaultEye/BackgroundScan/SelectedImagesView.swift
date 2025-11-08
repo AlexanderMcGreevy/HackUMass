@@ -37,7 +37,6 @@ struct SelectedImagesView: View {
                 }
             }
             .navigationTitle("Matched Images")
-            .navigationBarTitleDisplayMode(.inline)
             .task {
                 await loadSelectedAssets()
             }
