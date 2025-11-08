@@ -13,8 +13,23 @@ struct ContentView: View {
     @EnvironmentObject var statsManager: StatisticsManager
     @StateObject private var photoLibraryManager = PhotoLibraryManager()
     @StateObject private var deleteBatchManager = DeleteBatchManager()
+    private let geminiService: GeminiAnalyzing?
+    private let consentManager: PrivacyConsentManaging
+
+    @StateObject private var photoLibraryManager: PhotoLibraryManager
+    @StateObject private var deleteBatchManager: DeleteBatchManager
     @State private var detectionResults: [DetectionResult] = []
     @State private var showPermissionAlert = false
+
+    init(
+        geminiService: GeminiAnalyzing? = ContentView.makeGeminiService(),
+        consentManager: PrivacyConsentManaging = PrivacyConsentManager()
+    ) {
+        self.geminiService = geminiService
+        self.consentManager = consentManager
+        _photoLibraryManager = StateObject(wrappedValue: PhotoLibraryManager())
+        _deleteBatchManager = StateObject(wrappedValue: DeleteBatchManager())
+    }
 
     var body: some View {
         NavigationStack {
@@ -306,6 +321,21 @@ struct ContentView: View {
             // Only load if we don't already have results
             if detectionResults.isEmpty {
                 detectionResults = results
+        performScan()
+    }
+
+    private func performScan() {
+        isScanning = true
+        Task {
+            let scanner = ScannerService(
+                photoLibraryManager: photoLibraryManager,
+                geminiService: geminiService,
+                consentManager: consentManager
+            )
+            let results = await scanner.scanPhotos()
+            await MainActor.run {
+                detectionResults = results
+                isScanning = false
             }
         }
     }
@@ -347,6 +377,20 @@ struct ContentView: View {
                 print("Failed to delete photos: \(error)")
             }
         }
+    }
+}
+
+private extension ContentView {
+    static func makeGeminiService() -> GeminiAnalyzing? {
+        if let envKey = ProcessInfo.processInfo.environment["GEMINI_API_KEY"], !envKey.isEmpty {
+            return GeminiService(apiKey: envKey)
+        }
+
+        if let infoKey = Bundle.main.object(forInfoDictionaryKey: "GeminiAPIKey") as? String, !infoKey.isEmpty {
+            return GeminiService(apiKey: infoKey)
+        }
+
+        return nil
     }
 }
 
