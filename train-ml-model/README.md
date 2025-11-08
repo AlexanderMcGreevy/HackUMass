@@ -5,4 +5,4 @@ Object-detection (YOLOv11) model that detects IDs, passports, and credit cards' 
 - Combined 4 datasets (credit cards, IDs, passports) then trained model
 - Then continued to train the model on another 4 datasets (IDs)
 
-Note that file paths were different.
+Note that file paths are different than specified.
