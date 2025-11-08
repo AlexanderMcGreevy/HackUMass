@@ -4,7 +4,7 @@ Concise, project-specific guidance for AI agents contributing to this SwiftUI iO
 
 ## Core Architecture
 
-- Central model: `DetectionResult` (asset, `isFlagged`, `[DetectedRegion]`, `reason`, optional `geminiExplanation`, `privacyScore`, `thumbnail`). Any scanning pipeline MUST emit an array `[DetectionResult]` consumed by `ContentView` (only first element rendered) and `SwipeCardView` via `DetectionResultCard`.
+- Central model: `DetectionResult` (asset, `isFlagged`, `[DetectedRegion]`, `reason`, `ocrSegments`, `analysisStatus`, optional `analysis`, optional `analysisMessage`, optional `privacyScore`, `thumbnail`). Any scanning pipeline MUST emit an array `[DetectionResult]` consumed by `ContentView` (only first element rendered) and `SwipeCardView` via `DetectionResultCard`. `geminiExplanation` remains a computed convenience that surfaces `analysis?.explanation` for legacy UI.
 - Detection primitives: `Detection` (type, confidence) and `SensitiveContentFlagger.flagSensitiveDetections(in:threshold:)` which gates sensitive items before OCR / Gemini. Always run flagger on raw model output first.
 - Photo access & thumbnails: `PhotoLibraryManager` (`@MainActor`). Mutations to published state stay on main actor; expensive PhotoKit calls are bridged with `withCheckedContinuation`.
 - Scanning placeholder: `ScannerService.scanPhotos()` currently returns every asset flagged with mock regions. Replace internals but preserve: async iteration, thumbnail prefetch (`loadThumbnail`), normalized bounding boxes (0–1) in `DetectedRegion.normalizedRect`.
@@ -14,12 +14,14 @@ Concise, project-specific guidance for AI agents contributing to this SwiftUI iO
 
 - Swipe UX: `SwipeCardView` maps right swipe → delete (stage), left swipe → keep. Threshold constant `swipeThreshold` and haptics provide tactile feedback; maintain these unless redesigning. Removal uses animated `detectionResults.removeAll { $0.id == result.id }`.
 - Deletion staging: Use `DeleteBatchManager.stage(assetId)`; batch commit with `commit(using:)` after review. Don’t delete directly from swipe.
-- Risk / explanation: After OCR, call `GeminiService.generateExplanation(ocrText:detections:)`; it returns JSON you can assign into `DetectionResult.geminiExplanation` and derive a `privacyScore` heuristic if desired (existing mock uses 0.5–0.89). Never send raw image bytes—only sanitized OCR text + detection metadata.
+- OCR + analysis pipeline lives in `ScannerService.analyze(image:asset:regions:detections:thumbnail:)`. Vision-based OCR (`OCRServiceProtocol`, default `VisionOCRService`) produces `[OCRTextSegment]` per detected region; sanitize raw text with `TextSanitizer` before any network call. Persist sanitized segments in `DetectionResult.ocrSegments`.
+- Risk / explanation: After sanitization, call `GeminiService.generateAnalysis(ocrText:detections:)`; it returns `SensitiveAnalysisResult` which links risk level, key phrases, recommended actions, and category predictions. Map that into `DetectionResult.analysis`, update `analysisStatus`, and derive a `privacyScore` heuristic if desired (current helper maps `.high` → 0.9, `.medium` → 0.6, `.low` → 0.3, `.unknown` → 0.2). Never send raw image bytes—only sanitized OCR text + detection metadata.
 
 ## Gemini Integration Constraints
 
-- Endpoint: `gemini-2.5-flash` with `generationConfig.responseMimeType = application/json` enforced. Prompt forbids inventing identifiers; preserve keys: `explanation`, `risk_level`, `key_phrases`, `recommended_actions` mapped to `GeminiAnalysisPayload` (coding keys already defined). Extend by adding fields ONLY if both prompt & decoding updated.
+- Endpoint: `gemini-2.5-flash` with `generationConfig.responseMimeType = application/json` enforced. Prompt forbids inventing identifiers; JSON keys must include `explanation`, `risk_level`, `key_phrases`, `recommended_actions`, and `categories` (`label`, `confidence`). Extend only when both prompt and decoding are updated in lockstep.
 - API key injection: via `GeminiService(apiKey:)`; do not hardcode keys. Prefer dependency injection.
+- Consent gating: `ScannerService` respects `PrivacyConsentManaging`. Provide UI/flow elsewhere to call `recordConsent(true)` before triggering Gemini calls, or expect `analysisStatus == .consentRequired`.
 
 ## Concurrency & Threading
 
