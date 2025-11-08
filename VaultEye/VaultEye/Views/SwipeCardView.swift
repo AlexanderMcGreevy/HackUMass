@@ -156,18 +156,38 @@ struct SwipeCardView<Content: View>: View {
     }
 }
 
-// Specialized version for DetectionResult
+// Specialized version for DetectionResult with redaction support
 struct DetectionResultCard: View {
     let result: DetectionResult
+    let photoLibraryManager: PhotoLibraryManager
+    let redactionService: RedactionServiceProtocol
+
+    @State private var fullSizeImage: UIImage?
+    @State private var dragOffset: CGFloat = 0
+    @State private var isRedacting = false
+    @State private var redactionError: String?
+    @State private var showError = false
+
+    private let redactionSwipeThreshold: CGFloat = 120
+
+    init(
+        result: DetectionResult,
+        photoLibraryManager: PhotoLibraryManager,
+        redactionService: RedactionServiceProtocol = RedactionService()
+    ) {
+        self.result = result
+        self.photoLibraryManager = photoLibraryManager
+        self.redactionService = redactionService
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                // Image with bounding boxes
-                if let thumbnail = result.thumbnail {
+        ZStack {
+            VStack(spacing: 0) {
+                // Image at the top (fixed, not scrollable)
+                if let image = fullSizeImage ?? result.thumbnail {
                     GeometryReader { geometry in
                         ZStack {
-                            Image(uiImage: thumbnail)
+                            Image(uiImage: image)
                                 .resizable()
                                 .scaledToFit()
                                 .frame(width: geometry.size.width)
@@ -176,83 +196,244 @@ struct DetectionResultCard: View {
                             ForEach(result.detectedRegions) { region in
                                 BoundingBoxOverlay(
                                     region: region,
-                                    imageSize: thumbnail.size,
+                                    imageSize: image.size,
                                     frameWidth: geometry.size.width
                                 )
                             }
                         }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     }
-                    .aspectRatio(result.thumbnail?.size.width ?? 1 / (result.thumbnail?.size.height ?? 1), contentMode: .fit)
+                    .frame(height: 300)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                 } else {
                     RoundedRectangle(cornerRadius: 12)
                         .fill(Color.gray.opacity(0.3))
-                        .frame(height: 200)
+                        .frame(height: 300)
                         .overlay {
-                            Image(systemName: "photo")
-                                .font(.largeTitle)
-                                .foregroundColor(.gray)
+                            ProgressView()
                         }
                 }
 
-                // Detection details
-                VStack(alignment: .leading, spacing: 12) {
-                    // Risk score
-                    if let score = result.privacyScore {
-                        HStack {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.red)
-                            Text("Risk: \(String(format: "%.0f%%", score * 100))")
+                // Scrollable details below
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        // Detection info section
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Detection Results")
                                 .font(.headline)
-                                .foregroundColor(.red)
-                        }
-                    }
 
-                    // Detection types
-                    if !result.detectedRegions.isEmpty {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Detected:")
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                            ForEach(result.detectedRegions) { region in
-                                HStack {
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 6, height: 6)
-                                    Text(region.label)
-                                        .font(.subheadline)
-                                    Spacer()
-                                    Text("\(String(format: "%.0f%%", region.confidence * 100))")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
+                            VStack(alignment: .leading, spacing: 8) {
+                                Label(result.reason, systemImage: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.red)
+
+                                if let score = result.privacyScore {
+                                    HStack {
+                                        Text("Privacy Risk Score:")
+                                            .foregroundColor(.secondary)
+                                        Spacer()
+                                        Text("\(String(format: "%.0f%%", score * 100))")
+                                            .fontWeight(.semibold)
+                                            .foregroundColor(.orange)
+                                    }
                                 }
                             }
+                            .padding()
+                            .background(Color(.systemGray6))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                            if !result.detectedRegions.isEmpty {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Detected Regions")
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+
+                                    ForEach(result.detectedRegions) { region in
+                                        HStack {
+                                            Circle()
+                                                .fill(Color.red)
+                                                .frame(width: 8, height: 8)
+
+                                            Text(region.label)
+                                                .font(.subheadline)
+
+                                            Spacer()
+
+                                            Text("\(String(format: "%.0f%%", region.confidence * 100))")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                }
+                                .padding()
+                                .background(Color(.systemGray6))
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                            }
                         }
-                    }
 
-                    // Reason
-                    Text(result.reason)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        // Gemini explanation
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("AI Explanation", systemImage: "sparkles")
+                                .font(.headline)
 
-                    // Gemini explanation
-                    if let explanation = result.geminiExplanation {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Label("AI Analysis", systemImage: "sparkles")
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                            Text(explanation)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                            if let explanation = result.geminiExplanation {
+                                Text(explanation)
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            } else {
+                                Text("No explanation available")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                                    .italic()
+                            }
                         }
                         .padding()
                         .background(Color(.systemGray6))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                        // Redaction hint
+                        if result.asset != nil {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Label("Swipe Down to Blur Text", systemImage: "arrow.down")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.blue)
+
+                                Text("Pull down on the card to automatically detect and blur all text in this image")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding()
+                            .background(Color.blue.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
                     }
+                    .padding()
                 }
-                .padding(.horizontal)
             }
-            .padding(.vertical)
+            .offset(y: max(0, dragOffset))
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        if value.translation.height > 0 {
+                            dragOffset = value.translation.height
+                        }
+                    }
+                    .onEnded { _ in
+                        if dragOffset > redactionSwipeThreshold {
+                            performRedaction()
+                        } else {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                dragOffset = 0
+                            }
+                        }
+                    }
+            )
+
+            // Blue indicator at bottom
+            if dragOffset > 0 {
+                VStack {
+                    Spacer()
+                    Rectangle()
+                        .fill(Color.blue)
+                        .frame(height: 4)
+                        .opacity(min(1.0, dragOffset / redactionSwipeThreshold))
+                }
+                .allowsHitTesting(false)
+            }
+
+            // Progress overlay
+            if isRedacting {
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+
+                    Text("Redacting text…")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                }
+                .padding(32)
+                .background(Color(.systemGray6))
+                .cornerRadius(16)
+            }
+        }
+        .task {
+            await loadFullSizeImage()
+        }
+        .alert("Redaction Error", isPresented: $showError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(redactionError ?? "An error occurred during redaction")
+        }
+    }
+
+    private func loadFullSizeImage() async {
+        // Use cached thumbnail if no asset (preview mode)
+        if let thumbnail = result.thumbnail {
+            fullSizeImage = thumbnail
+            return
+        }
+
+        guard let asset = result.asset else { return }
+        let targetSize = CGSize(width: 1024, height: 1024)
+        fullSizeImage = await photoLibraryManager.loadThumbnail(for: asset, targetSize: targetSize)
+    }
+
+    private func performRedaction() {
+        guard let asset = result.asset else {
+            redactionError = "Cannot redact preview images"
+            showError = true
+            withAnimation {
+                dragOffset = 0
+            }
+            return
+        }
+
+        isRedacting = true
+        dragOffset = 0
+
+        Task {
+            do {
+                let newAsset = try await redactionService.redactAndReplace(asset: asset)
+
+                await MainActor.run {
+                    isRedacting = false
+
+                    // Update the view with the new redacted asset
+                    Task {
+                        let targetSize = CGSize(width: 1024, height: 1024)
+                        fullSizeImage = await photoLibraryManager.loadThumbnail(
+                            for: newAsset,
+                            targetSize: targetSize
+                        )
+                    }
+
+                    // Haptic success feedback
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
+            } catch RedactionError.noTextFound {
+                await MainActor.run {
+                    isRedacting = false
+                    redactionError = "No text found in this image"
+                    showError = true
+                }
+            } catch RedactionError.deleteFailed {
+                await MainActor.run {
+                    isRedacting = false
+                    redactionError = "Redacted copy saved, but original could not be deleted. Both copies remain in your library."
+                    showError = true
+                }
+            } catch {
+                await MainActor.run {
+                    isRedacting = false
+                    redactionError = "Failed to redact: \(error.localizedDescription)"
+                    showError = true
+                }
+            }
         }
     }
 }
@@ -282,16 +463,24 @@ private struct BoundingBoxOverlay: View {
 
 #Preview("Swipe Card - Flagged") {
     SwipeCardView(
-        content: { DetectionResultCard(result: .mockFlagged) },
+        content: {
+            DetectionResultCard(
+                result: .mockFlagged,
+                photoLibraryManager: PhotoLibraryManager()
+            )
+        },
         onDelete: { print("Deleted") },
         onKeep: { print("Kept") }
     )
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .ignoresSafeArea()        // apply at the top level
+    .ignoresSafeArea()
 }
 
 
 #Preview("Detection Result Card Only") {
-    DetectionResultCard(result: DetectionResult.mockFlagged)
-        .padding()
+    DetectionResultCard(
+        result: DetectionResult.mockFlagged,
+        photoLibraryManager: PhotoLibraryManager()
+    )
+    .padding()
 }

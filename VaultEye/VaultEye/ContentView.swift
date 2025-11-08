@@ -122,7 +122,10 @@ struct ContentView: View {
             if let currentResult = detectionResults.first {
                 SwipeCardView(
                     content: {
-                        DetectionResultCard(result: currentResult)
+                        DetectionResultCard(
+                            result: currentResult,
+                            photoLibraryManager: photoLibraryManager
+                        )
                     },
                     onDelete: {
                         handleDelete(currentResult)
@@ -243,7 +246,10 @@ struct ContentView: View {
 #Preview("Swipe Card") {
     SwipeCardView(
         content: {
-            DetectionResultCard(result: DetectionResult.mockFlagged)
+            DetectionResultCard(
+                result: DetectionResult.mockFlagged,
+                photoLibraryManager: PhotoLibraryManager()
+            )
         },
         onDelete: { print("Delete") },
         onKeep: { print("Keep") }

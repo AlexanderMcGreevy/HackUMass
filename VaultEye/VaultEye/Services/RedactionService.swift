@@ -32,34 +32,50 @@ class RedactionService: RedactionServiceProtocol {
     /// Main entry point: detect text, blur it, save new asset, delete original
     @MainActor
     func redactAndReplace(asset: PHAsset) async throws -> PHAsset {
+        print("🔒 Starting redaction process for asset: \(asset.localIdentifier)")
+
         // Step 1: Load the full-resolution image
+        print("  Step 1: Loading full-resolution image...")
         guard let image = await loadImage(from: asset) else {
+            print("  ❌ Failed to load image")
             throw RedactionError.loadImageFailed
         }
+        print("  ✅ Image loaded: \(Int(image.size.width))×\(Int(image.size.height))px")
 
         // Step 2: Detect text boxes using Vision OCR
+        print("  Step 2: Detecting text with Vision OCR...")
         let textBoxes = try await detectText(in: image)
 
         guard !textBoxes.isEmpty else {
+            print("  ❌ No text found in image")
             throw RedactionError.noTextFound
         }
 
         // Step 3: Blur text regions
+        print("  Step 3: Blurring \(textBoxes.count) text region(s)...")
         guard let redactedImage = blurText(in: image, boxes: textBoxes) else {
+            print("  ❌ Failed to render blurred image")
             throw RedactionError.renderFailed
         }
+        print("  ✅ Text regions blurred successfully")
 
         // Step 4: Save as new asset
+        print("  Step 4: Saving redacted image to photo library...")
         let newAsset = try await saveAsNewAsset(image: redactedImage)
+        print("  ✅ New asset saved: \(newAsset.localIdentifier)")
 
         // Step 5: Delete original (best effort)
+        print("  Step 5: Deleting original asset...")
         do {
             try await deleteAsset(asset)
+            print("  ✅ Original asset deleted")
         } catch {
             // Non-fatal: new asset exists, just alert user
+            print("  ⚠️ Failed to delete original: \(error.localizedDescription)")
             throw RedactionError.deleteFailed
         }
 
+        print("🎉 Redaction complete!")
         return newAsset
     }
 
@@ -96,15 +112,25 @@ class RedactionService: RedactionServiceProtocol {
                 }
 
                 guard let observations = request.results as? [VNRecognizedTextObservation] else {
+                    print("⚠️ OCR: No text observations found")
                     continuation.resume(returning: [])
                     return
                 }
+
+                print("📝 OCR: Found \(observations.count) text observation(s)")
 
                 // Convert normalized coordinates to image coordinates with padding
                 let imageSize = CGSize(width: cgImage.width, height: cgImage.height)
                 var boxes: [CGRect] = []
 
-                for observation in observations {
+                for (index, observation) in observations.enumerated() {
+                    // Extract the recognized text
+                    let topCandidate = observation.topCandidates(1).first
+                    let recognizedText = topCandidate?.string ?? ""
+                    let confidence = topCandidate?.confidence ?? 0.0
+
+                    print("  [\(index + 1)] Text: \"\(recognizedText)\" (confidence: \(String(format: "%.2f", confidence)))")
+
                     let box = observation.boundingBox
 
                     // Convert from normalized (0-1, origin bottom-left) to image coordinates
@@ -121,6 +147,7 @@ class RedactionService: RedactionServiceProtocol {
 
                 // Merge overlapping boxes
                 let merged = self.mergeOverlappingBoxes(boxes)
+                print("✅ OCR: Merged into \(merged.count) redaction region(s)")
                 continuation.resume(returning: merged)
             }
 
