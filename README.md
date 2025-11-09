@@ -385,12 +385,6 @@ This project is licensed under the MIT License - see LICENSE file for details.
 - **Google Gemini AI** - Intelligent content analysis
 - **SwiftUI** - Modern UI framework
 
-## 📞 Contact
-
-- **Issues**: [GitHub Issues](https://github.com/yourusername/VaultEye/issues)
-- **Email**: your.email@example.com
-- **Website**: https://obscurafy.app (if applicable)
-
 ## 🗺️ Roadmap
 
 ### Upcoming Features
