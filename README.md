@@ -98,8 +98,8 @@ VaultEye/
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/VaultEye.git
-   cd VaultEye
+   git clone https://github.com/AlexanderMcGreevy/Obscurafy.git
+   cd Obscurafy
    ```
 
 2. **Configure Gemini API (Optional)**
