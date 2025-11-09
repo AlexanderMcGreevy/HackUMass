@@ -19,7 +19,7 @@ enum RedactionError: Error {
 }
 
 protocol RedactionServiceProtocol {
-    func redactAndReplace(asset: PHAsset, onOriginalAsset: ((PHAsset) -> Void)?) async throws -> PHAsset
+    func redactAndReplace(asset: PHAsset, yoloRegions: [CGRect]?, onOriginalAsset: ((PHAsset) -> Void)?) async throws -> PHAsset
 }
 
 class RedactionService: RedactionServiceProtocol {
@@ -30,8 +30,11 @@ class RedactionService: RedactionServiceProtocol {
 
     /// Main entry point: detect text, blur it, save new asset, queue original for deletion
     @MainActor
-    func redactAndReplace(asset: PHAsset, onOriginalAsset: ((PHAsset) -> Void)? = nil) async throws -> PHAsset {
+    func redactAndReplace(asset: PHAsset, yoloRegions: [CGRect]? = nil, onOriginalAsset: ((PHAsset) -> Void)? = nil) async throws -> PHAsset {
         print("🔒 Starting redaction process for asset: \(asset.localIdentifier)")
+        if let yoloCount = yoloRegions?.count {
+            print("  📦 YOLO detections provided: \(yoloCount) region(s)")
+        }
 
         // Save original creation date
         let originalCreationDate = asset.creationDate
@@ -47,19 +50,49 @@ class RedactionService: RedactionServiceProtocol {
         // Step 2: Detect text boxes using Vision OCR
         print("  Step 2: Detecting text with Vision OCR...")
         let textBoxes = try await detectText(in: image)
+        print("  ✅ Found \(textBoxes.count) text region(s)")
 
-        guard !textBoxes.isEmpty else {
-            print("  ❌ No text found in image")
+        // Step 2b: Convert YOLO normalized regions to image coordinates
+        var yoloBoxes: [CGRect] = []
+        if let regions = yoloRegions {
+            let imageSize = CGSize(width: image.size.width * image.scale,
+                                   height: image.size.height * image.scale)
+            for region in regions {
+                // Convert normalized coordinates (0-1) to pixel coordinates
+                let pixelRect = CGRect(
+                    x: region.origin.x * imageSize.width,
+                    y: region.origin.y * imageSize.height,
+                    width: region.size.width * imageSize.width,
+                    height: region.size.height * imageSize.height
+                )
+
+                // Scale up the box by 2x (expand from center)
+                let scaledRect = CGRect(
+                    x: pixelRect.midX - (pixelRect.width * self.scaleMultiplier) / 2,
+                    y: pixelRect.midY - (pixelRect.height * self.scaleMultiplier) / 2,
+                    width: pixelRect.width * self.scaleMultiplier,
+                    height: pixelRect.height * self.scaleMultiplier
+                )
+
+                yoloBoxes.append(scaledRect)
+            }
+            print("  ✅ Converted \(yoloBoxes.count) YOLO region(s) to image coordinates")
+        }
+
+        // Step 2c: Combine all boxes (YOLO + Text)
+        let allBoxes = textBoxes + yoloBoxes
+
+        guard !allBoxes.isEmpty else {
+            print("  ❌ No regions to redact (no text or YOLO detections)")
             throw RedactionError.noTextFound
         }
 
-        // Step 3: Blur text regions
-        print("  Step 3: Blurring \(textBoxes.count) text region(s)...")
-        guard let redactedImage = blurText(in: image, boxes: textBoxes) else {
+        print("  Step 3: Blurring \(allBoxes.count) total region(s) (\(textBoxes.count) text + \(yoloBoxes.count) YOLO)...")
+        guard let redactedImage = blurText(in: image, boxes: allBoxes) else {
             print("  ❌ Failed to render blurred image")
             throw RedactionError.renderFailed
         }
-        print("  ✅ Text regions blurred successfully")
+        print("  ✅ All regions blurred successfully")
 
         // Step 4: Save as new asset with original creation date
         print("  Step 4: Saving redacted image to photo library...")
@@ -138,7 +171,16 @@ class RedactionService: RedactionServiceProtocol {
 
                     // Add padding
                     let paddedRect = rect.insetBy(dx: -self.padding, dy: -self.padding)
-                    boxes.append(paddedRect)
+
+                    // Scale up the box by 2x (expand from center)
+                    let scaledRect = CGRect(
+                        x: paddedRect.midX - (paddedRect.width * self.scaleMultiplier) / 2,
+                        y: paddedRect.midY - (paddedRect.height * self.scaleMultiplier) / 2,
+                        width: paddedRect.width * self.scaleMultiplier,
+                        height: paddedRect.height * self.scaleMultiplier
+                    )
+
+                    boxes.append(scaledRect)
                 }
 
                 // Merge overlapping boxes

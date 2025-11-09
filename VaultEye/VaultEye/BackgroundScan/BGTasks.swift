@@ -9,7 +9,7 @@ import BackgroundTasks
 import Foundation
 
 final class BGTasks {
-    static let taskIdentifier = "com.vaulteye.scan"
+    static let taskIdentifier = "com.obscurafy.scan"
 
     // MARK: - Registration
 
@@ -95,7 +95,7 @@ final class BGTasks {
 
  Target → Info tab:
    - Add "Permitted background task scheduler identifiers"
-   - Set value: com.vaulteye.scan
+   - Set value: com.obscurafy.scan
 
  Target → Signing & Capabilities:
    - Add "Background Modes" capability

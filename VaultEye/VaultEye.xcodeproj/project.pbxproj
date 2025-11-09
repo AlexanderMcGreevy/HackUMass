@@ -408,6 +408,7 @@
 				DEVELOPMENT_TEAM = Z87CXCTTK6;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Obscurafy;
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "In order to clean up your photo library, we first need access";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -419,7 +420,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.GroovyGears.VaultEye;
+				PRODUCT_BUNDLE_IDENTIFIER = com.GroovyGears.Obscurfy;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -442,6 +443,7 @@
 				DEVELOPMENT_TEAM = Z87CXCTTK6;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Obscurafy;
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "In order to clean up your photo library, we first need access";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

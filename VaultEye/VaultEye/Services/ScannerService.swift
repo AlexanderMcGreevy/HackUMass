@@ -15,7 +15,7 @@ class ScannerService {
     private let geminiService: GeminiAnalyzing?
     private let flagger: SensitiveContentFlagger
     private let consentManager: PrivacyConsentManaging
-    private let logger = Logger(subsystem: "com.vaulteye.app", category: "ScannerService")
+    private let logger = Logger(subsystem: "com.obscurafy.app", category: "ScannerService")
 
     init(
         photoLibraryManager: PhotoLibraryManager?,

@@ -36,7 +36,7 @@ final class PhotoScanService: ObservableObject {
     // MARK: - Private State
 
     private let yoloService = YOLOService.shared
-    private let logger = Logger(subsystem: "com.vaulteye.app", category: "PhotoScan")
+    private let logger = Logger(subsystem: "com.obscurafy.app", category: "PhotoScan")
     private var processedAssets: Set<String> = []  // For resume capability
 
     // MARK: - Computed Properties

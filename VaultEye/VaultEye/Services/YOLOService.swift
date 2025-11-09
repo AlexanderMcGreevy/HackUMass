@@ -29,7 +29,7 @@ struct YOLODetection: Identifiable, Hashable {
 
 /// Dynamic label loader with multiple fallback sources
 class ModelLabelLoader {
-    private let logger = Logger(subsystem: "com.vaulteye.app", category: "Labels")
+    private let logger = Logger(subsystem: "com.obscurafy.app", category: "Labels")
     private let labels: [String]
 
     /// Sensitive document classes we care about
@@ -170,7 +170,7 @@ final class YOLOService {
 
     private let model: best
     private let labelLoader: ModelLabelLoader
-    private let logger = Logger(subsystem: "com.vaulteye.app", category: "YOLO")
+    private let logger = Logger(subsystem: "com.obscurafy.app", category: "YOLO")
 
     private init() {
         do {

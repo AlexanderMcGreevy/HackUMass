@@ -101,7 +101,7 @@ struct ContentView: View {
                 .font(.title2)
                 .fontWeight(.semibold)
 
-            Text("VaultEye needs access to your photos to scan for sensitive information.")
+            Text("Obscurafy needs access to your photos to scan for sensitive information.")
                 .multilineTextAlignment(.center)
                 .foregroundColor(.secondary)
                 .padding(.horizontal)
@@ -198,15 +198,6 @@ struct ContentView: View {
                     }
 
                     Spacer()
-
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.down")
-                            .font(.caption)
-                            .foregroundColor(.blue)
-                        Text("Redact")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
                 }
             }
             .padding(.horizontal)

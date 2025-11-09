@@ -12,7 +12,7 @@ import OSLog
 
 /// Detects document types by analyzing text patterns
 class DocumentPatternDetector {
-    private let logger = Logger(subsystem: "com.vaulteye.app", category: "PatternDetector")
+    private let logger = Logger(subsystem: "com.obscurafy.app", category: "PatternDetector")
 
     /// Detected document type based on text patterns
     enum DocumentType: String {

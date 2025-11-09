@@ -64,7 +64,6 @@ struct DetailView: View {
 
                     // Details below (all scrollable together)
                     VStack(alignment: .leading, spacing: 20) {
-                        detectionInfoSection
                         placeholderSections
                         deleteButton
                     }
@@ -418,7 +417,13 @@ struct DetailView: View {
 
         Task {
             do {
-                let newAsset = try await redactionService.redactAndReplace(asset: asset) { originalAsset in
+                // Convert DetectedRegions to CGRects for YOLO detections
+                let yoloRegions = result.detectedRegions.map { $0.normalizedRect }
+
+                let newAsset = try await redactionService.redactAndReplace(
+                    asset: asset,
+                    yoloRegions: yoloRegions
+                ) { originalAsset in
                     // Queue the ORIGINAL uncensored photo for deletion
                     deleteBatchManager.stage(originalAsset.localIdentifier)
                 }

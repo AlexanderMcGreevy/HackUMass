@@ -72,16 +72,16 @@ struct VaultEyeApp: App {
 
  1. Target → Info tab → Add:
     - Permitted background task scheduler identifiers
-      └─ com.vaulteye.scan
+      └─ com.obscurafy.scan
 
  2. Target → Signing & Capabilities → Add "Background Modes":
     ✅ Background fetch
     ✅ Background processing
 
  3. Verify privacy descriptions exist:
-    - Privacy - Photo Library Usage Description
-    - Privacy - Photo Library Additions Usage Description
-    - Privacy - User Notifications Usage Description
+    - Privacy - Photo Library Usage Description: "Obscurafy needs access to your photos to scan for sensitive information"
+    - Privacy - Photo Library Additions Usage Description: "Obscurafy needs to save redacted images to your photo library"
+    - Privacy - User Notifications Usage Description: "Obscurafy sends notifications when background scans complete"
 
  See BACKGROUND_SETUP_INSTRUCTIONS_UPDATED.md for detailed setup guide.
  */

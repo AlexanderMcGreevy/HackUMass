@@ -16,38 +16,51 @@ struct SwipeCardView<Content: View>: View {
     let content: Content
     let onDelete: () -> Void
     let onKeep: () -> Void
+    let onRedact: (() -> Void)?
 
-    @State private var offset: CGFloat = 0
+    @State private var offsetX: CGFloat = 0
+    @State private var offsetY: CGFloat = 0
     @State private var isDragging = false
     @State private var hasTriggeredHaptic = false
 
-    private var progress: CGFloat {
-        min(1, abs(offset) / swipeThreshold)
+    private var horizontalProgress: CGFloat {
+        min(1, abs(offsetX) / swipeThreshold)
     }
 
-    private var isOverThreshold: Bool {
-        abs(offset) > swipeThreshold
+    private var verticalProgress: CGFloat {
+        min(1, abs(offsetY) / swipeThreshold)
+    }
+
+    private var isOverHorizontalThreshold: Bool {
+        abs(offsetX) > swipeThreshold
+    }
+
+    private var isOverVerticalThreshold: Bool {
+        abs(offsetY) > swipeThreshold
     }
 
     init(
         @ViewBuilder content: () -> Content,
         onDelete: @escaping () -> Void,
-        onKeep: @escaping () -> Void
+        onKeep: @escaping () -> Void,
+        onRedact: (() -> Void)? = nil
     ) {
         self.content = content()
         self.onDelete = onDelete
         self.onKeep = onKeep
+        self.onRedact = onRedact
     }
 
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .top) {
-                // Background glows - tall half capsules extending to bottom
+                // Background glows for all 4 directions
+
                 // Left edge - green (keep)
-                if offset < 0 {
+                if offsetX < 0 {
                     LinearGradient(
                         colors: [
-                            Color.green.opacity(progress * 0.7),
+                            Color.green.opacity(horizontalProgress * 0.7),
                             Color.green.opacity(0)
                         ],
                         startPoint: .leading,
@@ -57,18 +70,18 @@ struct SwipeCardView<Content: View>: View {
                     .mask(
                         Capsule()
                             .frame(width: 300, height: geometry.size.height)
-                            .offset(x: -150) // Shift left so only right half is visible
+                            .offset(x: -150)
                     )
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .allowsHitTesting(false)
                 }
 
                 // Right edge - red (delete)
-                if offset > 0 {
+                if offsetX > 0 {
                     LinearGradient(
                         colors: [
                             Color.red.opacity(0),
-                            Color.red.opacity(progress * 0.7)
+                            Color.red.opacity(horizontalProgress * 0.7)
                         ],
                         startPoint: .leading,
                         endPoint: .trailing
@@ -77,11 +90,13 @@ struct SwipeCardView<Content: View>: View {
                     .mask(
                         Capsule()
                             .frame(width: 300, height: geometry.size.height)
-                            .offset(x: 150) // Shift right so only left half is visible
+                            .offset(x: 150)
                     )
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .allowsHitTesting(false)
                 }
+
+                // No vertical indicators - let ScrollView handle vertical gestures
 
                 // Card content - follows drag continuously with NO animation on offset
                 content
@@ -94,43 +109,45 @@ struct SwipeCardView<Content: View>: View {
                         x: 0,
                         y: isDragging ? 10 : 5
                     )
-                    .offset(x: offset)  // Direct offset - no animation
-                    .rotationEffect(.degrees(Double(offset) / 20))
+                    .offset(x: offsetX)  // Only horizontal offset
+                    .rotationEffect(.degrees(Double(offsetX) / 20))
                     .scaleEffect(isDragging ? 1.02 : 1.0)
                     .gesture(
                         DragGesture(minimumDistance: 0)
                             .onChanged { value in
-                                isDragging = true
-                                // Card follows finger exactly - no animation
-                                offset = value.translation.width
+                                // Only handle horizontal swipes (ignore vertical)
+                                let horizontalMovement = abs(value.translation.width)
+                                let verticalMovement = abs(value.translation.height)
 
-                                // Haptic feedback when crossing threshold
-                                if isOverThreshold && !hasTriggeredHaptic {
-                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                    hasTriggeredHaptic = true
-                                } else if !isOverThreshold && hasTriggeredHaptic {
-                                    hasTriggeredHaptic = false
+                                // Only engage if horizontal movement is dominant
+                                if horizontalMovement > verticalMovement * 1.5 {
+                                    isDragging = true
+                                    offsetX = value.translation.width
+
+                                    // Haptic feedback when crossing threshold
+                                    if isOverHorizontalThreshold && !hasTriggeredHaptic {
+                                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                        hasTriggeredHaptic = true
+                                    } else if !isOverHorizontalThreshold && hasTriggeredHaptic {
+                                        hasTriggeredHaptic = false
+                                    }
                                 }
                             }
                             .onEnded { _ in
                                 isDragging = false
 
-                                if offset > swipeThreshold {
-                                    // Swipe right → Delete (only on release)
-                                    dismissCard(direction: 1) {
+                                if offsetX > swipeThreshold {
+                                    // Swipe right → Delete
+                                    dismissCard(directionX: 1, directionY: 0) {
                                         onDelete()
                                     }
-                                } else if offset < -swipeThreshold {
-                                    // Swipe left → Keep (only on release)
-                                    dismissCard(direction: -1) {
+                                } else if offsetX < -swipeThreshold {
+                                    // Swipe left → Keep
+                                    dismissCard(directionX: -1, directionY: 0) {
                                         onKeep()
                                     }
                                 } else {
-                                    // Snap back to center
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                        offset = 0
-                                        hasTriggeredHaptic = false
-                                    }
+                                    snapBack()
                                 }
                             }
                     )
@@ -139,12 +156,14 @@ struct SwipeCardView<Content: View>: View {
         }
     }
 
-    private func dismissCard(direction: CGFloat, completion: @escaping () -> Void) {
-        // Use a large enough offset to dismiss off-screen
-        let dismissOffset: CGFloat = direction * 500
+    private func dismissCard(directionX: CGFloat, directionY: CGFloat, completion: @escaping () -> Void) {
+        // Use large offsets to dismiss off-screen
+        let dismissOffsetX: CGFloat = directionX * 500
+        let dismissOffsetY: CGFloat = directionY * 500
 
         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            offset = dismissOffset
+            offsetX = dismissOffsetX
+            offsetY = dismissOffsetY
         }
 
         // Small haptic on dismiss
@@ -153,6 +172,14 @@ struct SwipeCardView<Content: View>: View {
         // Call completion after animation
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             completion()
+        }
+    }
+
+    private func snapBack() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            offsetX = 0
+            offsetY = 0
+            hasTriggeredHaptic = false
         }
     }
 }
@@ -167,15 +194,12 @@ struct DetectionResultCard: View {
     let consentManager: PrivacyConsentManaging
 
     @State private var fullSizeImage: UIImage?
-    @State private var dragOffset: CGFloat = 0
     @State private var isRedacting = false
     @State private var redactionError: String?
     @State private var showError = false
     @State private var analysisResult: SensitiveAnalysisResult?
     @State private var isAnalyzing = false
     @State private var noTextFound = false
-
-    private let redactionSwipeThreshold: CGFloat = 120
 
     init(
         result: DetectionResult,
@@ -201,22 +225,11 @@ struct DetectionResultCard: View {
                     // Image at the top (now scrollable)
                     if let image = fullSizeImage ?? result.thumbnail {
                         GeometryReader { geometry in
-                            ZStack {
-                                Image(uiImage: image)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: geometry.size.width)
-
-                                // Overlay bounding boxes
-                                ForEach(result.detectedRegions) { region in
-                                    BoundingBoxOverlay(
-                                        region: region,
-                                        imageSize: image.size,
-                                        frameWidth: geometry.size.width
-                                    )
-                                }
-                            }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: geometry.size.width)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                         }
                         .frame(height: 300)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -231,60 +244,6 @@ struct DetectionResultCard: View {
 
                     // Details below (all scrollable together)
                     VStack(alignment: .leading, spacing: 16) {
-                        // Detection info section
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Detection Results")
-                                .font(.headline)
-
-                            VStack(alignment: .leading, spacing: 8) {
-                                Label(result.reason, systemImage: "exclamationmark.triangle.fill")
-                                    .foregroundColor(.red)
-
-                                if let score = result.privacyScore {
-                                    HStack {
-                                        Text("Privacy Risk Score:")
-                                            .foregroundColor(.secondary)
-                                        Spacer()
-                                        Text("\(String(format: "%.0f%%", score * 100))")
-                                            .fontWeight(.semibold)
-                                            .foregroundColor(.orange)
-                                    }
-                                }
-                            }
-                            .padding()
-                            .background(Color(.systemGray6))
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-
-                            if !result.detectedRegions.isEmpty {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text("Detected Regions")
-                                        .font(.subheadline)
-                                        .fontWeight(.semibold)
-
-                                    ForEach(result.detectedRegions) { region in
-                                        HStack {
-                                            Circle()
-                                                .fill(regionColor(for: region.confidence))
-                                                .frame(width: 8, height: 8)
-
-                                            Text("Sensitive Content")
-                                                .font(.subheadline)
-
-                                            Spacer()
-
-                                            Text("\(String(format: "%.0f%%", region.confidence * 100))")
-                                                .font(.caption)
-                                                .fontWeight(.semibold)
-                                                .foregroundColor(regionColor(for: region.confidence))
-                                        }
-                                    }
-                                }
-                                .padding()
-                                .background(Color(.systemGray6))
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                            }
-                        }
-
                         // Gemini explanation
                         VStack(alignment: .leading, spacing: 8) {
                             Label("AI Explanation", systemImage: "sparkles")
@@ -396,35 +355,31 @@ struct DetectionResultCard: View {
                     .padding()
                 }
             }
-            .offset(y: max(0, dragOffset))
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        if value.translation.height > 0 {
-                            dragOffset = value.translation.height
-                        }
-                    }
-                    .onEnded { _ in
-                        if dragOffset > redactionSwipeThreshold {
-                            performRedaction()
-                        } else {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                dragOffset = 0
-                            }
-                        }
-                    }
-            )
 
-            // Blue indicator at bottom
-            if dragOffset > 0 {
-                VStack {
+            // Redact button in top right corner
+            VStack {
+                HStack {
                     Spacer()
-                    Rectangle()
-                        .fill(Color.blue)
-                        .frame(height: 4)
-                        .opacity(min(1.0, dragOffset / redactionSwipeThreshold))
+                    Button(action: performRedaction) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "eye.slash.fill")
+                                .font(.caption)
+                            Text("Redact")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+                    }
+                    .disabled(isRedacting)
+                    .padding(.trailing, 16)
+                    .padding(.top, 16)
                 }
-                .allowsHitTesting(false)
+                Spacer()
             }
 
             // Progress overlay
@@ -614,18 +569,20 @@ struct DetectionResultCard: View {
         guard let asset = result.asset else {
             redactionError = "Cannot redact preview images"
             showError = true
-            withAnimation {
-                dragOffset = 0
-            }
             return
         }
 
         isRedacting = true
-        dragOffset = 0
 
         Task {
             do {
-                let newAsset = try await redactionService.redactAndReplace(asset: asset) { originalAsset in
+                // Convert DetectedRegions to CGRects for YOLO detections
+                let yoloRegions = result.detectedRegions.map { $0.normalizedRect }
+
+                let newAsset = try await redactionService.redactAndReplace(
+                    asset: asset,
+                    yoloRegions: yoloRegions
+                ) { originalAsset in
                     // Queue the ORIGINAL uncensored photo for deletion
                     deleteBatchManager.stage(originalAsset.localIdentifier)
                 }
