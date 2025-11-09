@@ -11,13 +11,11 @@ internal import Photos
 struct ContentView: View {
     @EnvironmentObject var scanManager: BackgroundScanManager
     @EnvironmentObject var statsManager: StatisticsManager
-    @StateObject private var photoLibraryManager = PhotoLibraryManager()
-    @StateObject private var deleteBatchManager = DeleteBatchManager()
+    @StateObject private var photoLibraryManager: PhotoLibraryManager
+    @StateObject private var deleteBatchManager: DeleteBatchManager
     private let geminiService: GeminiAnalyzing?
     private let consentManager: PrivacyConsentManaging
 
-    @StateObject private var photoLibraryManager: PhotoLibraryManager
-    @StateObject private var deleteBatchManager: DeleteBatchManager
     @State private var detectionResults: [DetectionResult] = []
     @State private var showPermissionAlert = false
 
@@ -215,7 +213,9 @@ struct ContentView: View {
                         DetectionResultCard(
                             result: currentResult,
                             photoLibraryManager: photoLibraryManager,
-                            deleteBatchManager: deleteBatchManager
+                            deleteBatchManager: deleteBatchManager,
+                            geminiService: geminiService,
+                            consentManager: consentManager
                         )
                     },
                     onDelete: {
@@ -321,21 +321,6 @@ struct ContentView: View {
             // Only load if we don't already have results
             if detectionResults.isEmpty {
                 detectionResults = results
-        performScan()
-    }
-
-    private func performScan() {
-        isScanning = true
-        Task {
-            let scanner = ScannerService(
-                photoLibraryManager: photoLibraryManager,
-                geminiService: geminiService,
-                consentManager: consentManager
-            )
-            let results = await scanner.scanPhotos()
-            await MainActor.run {
-                detectionResults = results
-                isScanning = false
             }
         }
     }
@@ -382,14 +367,76 @@ struct ContentView: View {
 
 private extension ContentView {
     static func makeGeminiService() -> GeminiAnalyzing? {
+        // Try environment variable first
         if let envKey = ProcessInfo.processInfo.environment["GEMINI_API_KEY"], !envKey.isEmpty {
+            print("✅ Gemini API key loaded from environment variable")
             return GeminiService(apiKey: envKey)
         }
 
+        // Try Info.plist
         if let infoKey = Bundle.main.object(forInfoDictionaryKey: "GeminiAPIKey") as? String, !infoKey.isEmpty {
+            print("✅ Gemini API key loaded from Info.plist")
             return GeminiService(apiKey: infoKey)
         }
 
+        // Try reading from Secrets.xcconfig file (development fallback)
+        if let configKey = readAPIKeyFromSecretsFile(), !configKey.isEmpty {
+            print("✅ Gemini API key loaded from Secrets.xcconfig")
+            return GeminiService(apiKey: configKey)
+        }
+
+        print("❌ Gemini API key not found - AI analysis disabled")
+        print("   Add GEMINI_API_KEY environment variable or configure Secrets.xcconfig")
+        return nil
+    }
+
+    /// Reads API key from Secrets.xcconfig file (development only)
+    private static func readAPIKeyFromSecretsFile() -> String? {
+        // Get path to Secrets.xcconfig in project root
+        guard let projectPath = Bundle.main.resourcePath?
+            .replacingOccurrences(of: "/Build/Products", with: "")
+            .replacingOccurrences(of: "/Debug-iphonesimulator/VaultEye.app", with: "")
+            .replacingOccurrences(of: "/Release-iphonesimulator/VaultEye.app", with: "")
+            .replacingOccurrences(of: "/Debug-iphoneos/VaultEye.app", with: "")
+            .replacingOccurrences(of: "/Release-iphoneos/VaultEye.app", with: "")
+        else {
+            // Try alternative: look in parent directories from source location
+            let fileManager = FileManager.default
+            var currentPath = fileManager.currentDirectoryPath
+
+            for _ in 0..<5 {
+                let secretsPath = (currentPath as NSString).appendingPathComponent("Secrets.xcconfig")
+                if fileManager.fileExists(atPath: secretsPath) {
+                    return parseAPIKeyFromFile(secretsPath)
+                }
+                currentPath = (currentPath as NSString).deletingLastPathComponent
+            }
+            return nil
+        }
+
+        let secretsPath = (projectPath as NSString).appendingPathComponent("Secrets.xcconfig")
+        return parseAPIKeyFromFile(secretsPath)
+    }
+
+    private static func parseAPIKeyFromFile(_ path: String) -> String? {
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            return nil
+        }
+
+        // Parse: GEMINI_API_KEY = AIzaSy...
+        for line in contents.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("GEMINI_API_KEY") {
+                let parts = trimmed.components(separatedBy: "=")
+                if parts.count >= 2 {
+                    let key = parts[1...].joined(separator: "=")
+                        .trimmingCharacters(in: .whitespaces)
+                    if key != "YOUR_GEMINI_API_KEY_HERE" && !key.isEmpty {
+                        return key
+                    }
+                }
+            }
+        }
         return nil
     }
 }

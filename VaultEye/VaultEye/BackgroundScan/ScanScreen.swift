@@ -10,6 +10,7 @@ import SwiftUI
 struct ScanScreen: View {
     @EnvironmentObject var scanManager: BackgroundScanManager
     @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var consentManager = PrivacyConsentManager()
 
     @State private var threshold: Int = 85
 
@@ -121,6 +122,9 @@ struct ScanScreen: View {
                 .padding()
                 .background(Color(.systemGray6))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                // Gemini AI Analysis Toggle
+                geminiConsentSection
             }
 
             // Start/Cancel Button
@@ -166,6 +170,102 @@ struct ScanScreen: View {
                 .foregroundColor(.blue)
             }
         }
+    }
+
+    // MARK: - Gemini Consent Section
+
+    private var geminiConsentSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("AI Analysis", systemImage: "sparkles")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+
+                Spacer()
+
+                Toggle("", isOn: Binding(
+                    get: { consentManager.hasConsented },
+                    set: { newValue in
+                        consentManager.recordConsent(newValue)
+                        print(newValue ? "✅ Gemini AI analysis enabled" : "⚠️ Gemini AI analysis disabled")
+                    }
+                ))
+                .labelsHidden()
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                if consentManager.hasConsented {
+                    // Why it's enabled
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                                .font(.caption)
+                            Text("Enhanced Protection")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                        }
+                        Text("AI analyzes detected text to identify credit cards, SSNs, and other sensitive information with detailed explanations and risk scores.")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 20)
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "lock.shield.fill")
+                                .foregroundColor(.blue)
+                                .font(.caption)
+                            Text("Privacy First")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                        }
+                        Text("Only sanitized text is sent to Gemini API - no photos leave your device. Original images never transmitted.")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 20)
+                    }
+                } else {
+                    // Why to enable
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                                .font(.caption)
+                            Text("Limited Detection")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                        }
+                        Text("Without AI analysis, only basic detection is available. You may miss sensitive information that requires context to identify.")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 20)
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "info.circle.fill")
+                                .foregroundColor(.blue)
+                                .font(.caption)
+                            Text("How It Works")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                        }
+                        Text("When enabled, detected text is sanitized and analyzed by Google's Gemini AI to classify sensitivity levels and provide actionable recommendations.")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 20)
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(consentManager.hasConsented ? Color.green.opacity(0.05) : Color.orange.opacity(0.05))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(consentManager.hasConsented ? Color.green.opacity(0.3) : Color.orange.opacity(0.3), lineWidth: 1)
+        )
     }
 
     // MARK: - Scene Phase Handling

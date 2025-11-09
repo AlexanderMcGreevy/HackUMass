@@ -7,7 +7,6 @@
 
 internal import Photos
 import OSLog
-import Photos
 import UIKit
 
 class ScannerService {

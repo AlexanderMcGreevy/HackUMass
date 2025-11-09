@@ -10,7 +10,7 @@ final class GeminiService: GeminiAnalyzing {
     private let endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
     init(apiKey: String, session: URLSession = .shared) {
-        self.apiKey = apiKey
+        self.apiKey = "AIzaSyDFtwwlVusRvgHUwoyTsqdTg8qsW2sGvaQ"
         self.session = session
     }
 

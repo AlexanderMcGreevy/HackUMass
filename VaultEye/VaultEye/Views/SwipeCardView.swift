@@ -163,12 +163,17 @@ struct DetectionResultCard: View {
     let photoLibraryManager: PhotoLibraryManager
     let deleteBatchManager: DeleteBatchManager
     let redactionService: RedactionServiceProtocol
+    let geminiService: GeminiAnalyzing?
+    let consentManager: PrivacyConsentManaging
 
     @State private var fullSizeImage: UIImage?
     @State private var dragOffset: CGFloat = 0
     @State private var isRedacting = false
     @State private var redactionError: String?
     @State private var showError = false
+    @State private var analysisResult: SensitiveAnalysisResult?
+    @State private var isAnalyzing = false
+    @State private var noTextFound = false
 
     private let redactionSwipeThreshold: CGFloat = 120
 
@@ -176,12 +181,16 @@ struct DetectionResultCard: View {
         result: DetectionResult,
         photoLibraryManager: PhotoLibraryManager,
         deleteBatchManager: DeleteBatchManager,
-        redactionService: RedactionServiceProtocol = RedactionService()
+        redactionService: RedactionServiceProtocol = RedactionService(),
+        geminiService: GeminiAnalyzing? = nil,
+        consentManager: PrivacyConsentManaging = PrivacyConsentManager()
     ) {
         self.result = result
         self.photoLibraryManager = photoLibraryManager
         self.deleteBatchManager = deleteBatchManager
         self.redactionService = redactionService
+        self.geminiService = geminiService
+        self.consentManager = consentManager
     }
 
     var body: some View {
@@ -279,12 +288,66 @@ struct DetectionResultCard: View {
                             Label("AI Explanation", systemImage: "sparkles")
                                 .font(.headline)
 
-                            if let explanation = result.geminiExplanation {
+                            if isAnalyzing {
+                                HStack {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                    Text("Analyzing with Gemini...")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                        .italic()
+                                }
+                            } else if let analysis = analysisResult {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text(analysis.explanation)
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+
+                                    // Risk level
+                                    HStack {
+                                        Text("Risk Level:")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                        Text(analysis.riskLevel.rawValue.capitalized)
+                                            .font(.caption)
+                                            .fontWeight(.semibold)
+                                            .foregroundColor(riskColor(for: analysis.riskLevel))
+                                    }
+
+                                    // Categories
+                                    if !analysis.categories.isEmpty {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text("Categories:")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                            ForEach(analysis.categories, id: \.category.rawValue) { prediction in
+                                                HStack {
+                                                    Text("• \(prediction.category.rawValue)")
+                                                        .font(.caption)
+                                                    Spacer()
+                                                    Text("\(Int(prediction.confidence * 100))%")
+                                                        .font(.caption2)
+                                                        .foregroundColor(.secondary)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else if noTextFound {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "doc.text.magnifyingglass")
+                                        .foregroundColor(.secondary)
+                                    Text("No text detected in this image")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                        .italic()
+                                }
+                            } else if let explanation = result.geminiExplanation {
                                 Text(explanation)
                                     .font(.subheadline)
                                     .foregroundColor(.secondary)
                             } else {
-                                Text("No explanation available")
+                                Text("AI analysis will run when photo appears")
                                     .font(.subheadline)
                                     .foregroundColor(.secondary)
                                     .italic()
@@ -384,11 +447,139 @@ struct DetectionResultCard: View {
         }
         .task {
             await loadFullSizeImage()
+            await performGeminiAnalysis()
         }
         .alert("Redaction Error", isPresented: $showError) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(redactionError ?? "An error occurred during redaction")
+        }
+    }
+
+    private func performGeminiAnalysis() async {
+        // Skip if already analyzed or no asset
+        guard result.analysis == nil, let asset = result.asset else {
+            if let existing = result.analysis {
+                analysisResult = existing
+            }
+            return
+        }
+
+        // Check consent
+        guard consentManager.hasConsented else {
+            print("⚠️ Gemini analysis skipped - user has not consented")
+            print("   To enable: consentManager.recordConsent(true)")
+            return
+        }
+
+        // Check service availability
+        guard let geminiService = geminiService else {
+            print("⚠️ Gemini analysis skipped - service not configured")
+            print("   Set GEMINI_API_KEY environment variable or add GeminiAPIKey to Info.plist")
+            return
+        }
+
+        await MainActor.run {
+            isAnalyzing = true
+        }
+
+        print("🔍 Starting Gemini analysis for photo: \(asset.localIdentifier)")
+
+        do {
+            // Load full image for OCR
+            guard let image = fullSizeImage else {
+                print("❌ Cannot analyze - image not loaded")
+                await MainActor.run { isAnalyzing = false }
+                return
+            }
+
+            // Extract OCR text
+            let ocrService = VisionOCRService()
+
+            // If no regions detected, scan the entire image
+            let regionsToScan: [DetectedRegion]
+            if result.detectedRegions.isEmpty {
+                print("⚠️  No regions detected by ML model - scanning entire image")
+                regionsToScan = [DetectedRegion(
+                    normalizedRect: CGRect(x: 0, y: 0, width: 1, height: 1),
+                    confidence: Float(1.0),
+                    label: "Full Image"
+                )]
+            } else {
+                print("✓ Using \(result.detectedRegions.count) detected region(s)")
+                regionsToScan = result.detectedRegions
+            }
+
+            print("📍 Scanning \(regionsToScan.count) region(s) for text")
+            let segments = try await ocrService.extractSegments(from: image, regions: regionsToScan)
+
+            let sanitizedText = segments
+                .map { $0.sanitizedText }
+                .joined(separator: "\n---\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            guard !sanitizedText.isEmpty else {
+                print("⚠️ No text found in image for analysis")
+                await MainActor.run { isAnalyzing = false }
+                return
+            }
+
+            print("📝 OCR extracted text (\(sanitizedText.count) chars)")
+            print("   Preview: \(sanitizedText.prefix(100))...")
+
+            // Create detections from regions
+            let detections = result.detectedRegions.map { region in
+                Detection(type: region.label, confidence: Double(region.confidence))
+            }
+
+            // Call Gemini API
+            let analysis = try await geminiService.generateAnalysis(
+                ocrText: sanitizedText,
+                detections: detections
+            )
+
+            // Print to terminal
+            print("✨ Gemini Analysis Results:")
+            print("   Risk Level: \(analysis.riskLevel.rawValue)")
+            print("   Explanation: \(analysis.explanation)")
+            print("   Categories: \(analysis.categories.map { "\($0.category.rawValue) (\(Int($0.confidence * 100))%)" }.joined(separator: ", "))")
+            print("   Key Phrases: \(analysis.keyPhrases.joined(separator: ", "))")
+            print("   Recommended Actions: \(analysis.recommendedActions.joined(separator: "; "))")
+
+            await MainActor.run {
+                analysisResult = analysis
+                isAnalyzing = false
+            }
+
+        } catch OCRServiceError.noTextDetected {
+            print("ℹ️  No text detected in image - skipping Gemini analysis")
+            await MainActor.run {
+                noTextFound = true
+                isAnalyzing = false
+            }
+        } catch OCRServiceError.imageConversionFailed {
+            print("❌ Failed to convert image for OCR")
+            await MainActor.run {
+                isAnalyzing = false
+            }
+        } catch {
+            print("❌ Gemini analysis failed: \(error.localizedDescription)")
+            await MainActor.run {
+                isAnalyzing = false
+            }
+        }
+    }
+
+    private func riskColor(for riskLevel: SensitiveAnalysisResult.RiskLevel) -> Color {
+        switch riskLevel {
+        case .high:
+            return .red
+        case .medium:
+            return .orange
+        case .low:
+            return .yellow
+        case .unknown:
+            return .gray
         }
     }
 
