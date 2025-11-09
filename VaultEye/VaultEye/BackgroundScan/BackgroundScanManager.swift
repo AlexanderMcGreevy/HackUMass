@@ -114,7 +114,8 @@ final class BackgroundScanManager: ObservableObject {
         processScan(state: state)
     }
 
-    /// Resume or start a scan (used by background task)
+    /// Resume an existing scan (used by background task)
+    /// Only resumes scans that were started by the user - never auto-starts new scans
     func resumeOrStartIfNeeded(threshold: Int) async -> Bool {
         guard !isRunning else {
             print("⚠️ Scan already running")
@@ -128,7 +129,7 @@ final class BackgroundScanManager: ObservableObject {
         }
 
         // Load state
-        var state = store.loadOrCreate(threshold: threshold)
+        let state = store.loadOrCreate(threshold: threshold)
 
         // If already completed, nothing to do
         if state.completed {
@@ -136,18 +137,14 @@ final class BackgroundScanManager: ObservableObject {
             return true
         }
 
-        // If no assets, fetch them
+        // If no assets, this means no scan was ever started by the user
+        // Don't auto-start a new scan - only resume existing ones
         if state.assetIDs.isEmpty {
-            let assetIDs = PhotoAccess.fetchAllImageAssets()
-            guard !assetIDs.isEmpty else {
-                print("⚠️ No images found")
-                return false
-            }
-            state.assetIDs = assetIDs
-            state.threshold = threshold
-            store.save(state)
+            print("⚠️ No scan in progress - user must start scan manually")
+            return false
         }
 
+        // Resume the existing scan
         self.total = state.assetIDs.count
         self.processed = state.cursorIndex
         self.isRunning = true
